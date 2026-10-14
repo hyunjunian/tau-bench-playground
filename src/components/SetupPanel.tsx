@@ -1,0 +1,268 @@
+import { useState } from "react";
+import { useT } from "../i18n";
+import { type Endpoint, PROVIDERS, type ProviderId } from "../llm/providers";
+import type { RoleSettings, Settings } from "../state/settings";
+import { DOMAIN_SPLITS, type DomainName } from "../tau/env";
+import type { Controller, Role } from "../tau/episode";
+import { ModelPicker } from "./ModelPicker";
+
+interface Props {
+  settings: Settings;
+  update: (patch: Partial<Settings> | ((s: Settings) => Settings)) => void;
+  taskCount: number | null;
+  loading: boolean;
+  loadError: string | null;
+  episodeRunning: boolean;
+  endpointFor: (p: ProviderId) => Endpoint;
+  onStart: () => void;
+}
+
+const QUICK: { key: "quickWatch" | "quickPlayAgent" | "quickPlayUser" | "quickHumans"; agent: Controller; user: Controller }[] = [
+  { key: "quickWatch", agent: "model", user: "model" },
+  { key: "quickPlayAgent", agent: "human", user: "model" },
+  { key: "quickPlayUser", agent: "model", user: "human" },
+  { key: "quickHumans", agent: "human", user: "human" },
+];
+
+function Segmented<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+}) {
+  return (
+    <div className="segmented" role="radiogroup">
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={value === o.value}
+          className={value === o.value ? "active" : ""}
+          onClick={() => onChange(o.value)}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function RoleCard({
+  role,
+  value,
+  onChange,
+  endpointFor,
+}: {
+  role: Role;
+  value: RoleSettings;
+  onChange: (v: RoleSettings) => void;
+  endpointFor: (p: ProviderId) => Endpoint;
+}) {
+  const t = useT();
+  return (
+    <div className={`role-card role-${role}`}>
+      <div className="role-head">
+        <span className="role-dot" />
+        <strong>{t(role === "agent" ? "roleAgent" : "roleUser")}</strong>
+        <small>{t(role === "agent" ? "roleAgentHint" : "roleUserHint")}</small>
+      </div>
+      <Segmented<Controller>
+        value={value.controller}
+        options={[
+          { value: "human", label: t("human") },
+          { value: "model", label: t("model") },
+        ]}
+        onChange={(controller) => onChange({ ...value, controller })}
+      />
+      {value.controller === "model" && (
+        <ModelPicker value={value.model} onChange={(model) => onChange({ ...value, model })} endpointFor={endpointFor} />
+      )}
+    </div>
+  );
+}
+
+function KeyInput({ provider, value, onChange }: { provider: ProviderId; value: string; onChange: (v: string) => void }) {
+  const t = useT();
+  const [visible, setVisible] = useState(false);
+  const def = PROVIDERS[provider];
+  return (
+    <label className="field">
+      <span className="row space">
+        <span>{def.label}</span>
+        {def.keyUrl && (
+          <a href={def.keyUrl} target="_blank" rel="noopener noreferrer">
+            {t("getFreeKey")} ↗
+          </a>
+        )}
+      </span>
+      <div className="row">
+        <input
+          className="mono"
+          type={visible ? "text" : "password"}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={def.keyPlaceholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value.trim())}
+        />
+        <button type="button" className="btn btn-small" onClick={() => setVisible((v) => !v)}>
+          {visible ? t("hide") : t("show")}
+        </button>
+      </div>
+    </label>
+  );
+}
+
+export function SetupPanel({ settings, update, taskCount, loading, loadError, episodeRunning, endpointFor, onStart }: Props) {
+  const t = useT();
+  const splits = DOMAIN_SPLITS[settings.domain];
+  const max = taskCount ?? 0;
+  const setTask = (i: number) => update({ taskIndex: Math.max(0, Math.min(max - 1, i)) });
+  const providersInUse = Array.from(
+    new Set(
+      (["agent", "user"] as const)
+        .filter((r) => settings[r].controller === "model")
+        .map((r) => settings[r].model.provider),
+    ),
+  );
+
+  return (
+    <div className="setup">
+      <section className="panel-section">
+        <h2>{t("setupTask")}</h2>
+        <Segmented<DomainName>
+          value={settings.domain}
+          options={[
+            { value: "retail", label: t("domainRetail") },
+            { value: "airline", label: t("domainAirline") },
+          ]}
+          onChange={(domain) => update({ domain, split: "test", taskIndex: 0 })}
+        />
+        <div className="row task-row">
+          <label className="field split-field">
+            <span>{t("split")}</span>
+            <select value={settings.split} onChange={(e) => update({ split: e.target.value, taskIndex: 0 })}>
+              {splits.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field grow">
+            <span>
+              {t("taskNumber")} <small className="muted">{taskCount !== null ? t("taskOf", { n: taskCount - 1 }) : ""}</small>
+            </span>
+            <div className="row task-index">
+              <button type="button" className="btn btn-small" aria-label={t("prevTask")} onClick={() => setTask(settings.taskIndex - 1)}>
+                ‹
+              </button>
+              <input
+                type="number"
+                min={0}
+                max={Math.max(0, max - 1)}
+                value={settings.taskIndex}
+                onChange={(e) => setTask(Number(e.target.value) || 0)}
+              />
+              <button type="button" className="btn btn-small" aria-label={t("nextTask")} onClick={() => setTask(settings.taskIndex + 1)}>
+                ›
+              </button>
+              <button
+                type="button"
+                className="btn btn-small"
+                title={t("randomTask")}
+                aria-label={t("randomTask")}
+                onClick={() => setTask(Math.floor(Math.random() * max))}
+              >
+                🎲
+              </button>
+            </div>
+          </label>
+        </div>
+        {loading && <small className="muted">{t("loading")}</small>}
+        {loadError && <small className="error-text">{t("loadFailed", { error: loadError })}</small>}
+      </section>
+
+      <section className="panel-section">
+        <h2>{t("setupRoles")}</h2>
+        <div className="chips">
+          {QUICK.map((q) => (
+            <button
+              key={q.key}
+              type="button"
+              className={`chip ${settings.agent.controller === q.agent && settings.user.controller === q.user ? "active" : ""}`}
+              onClick={() =>
+                update((s) => ({
+                  ...s,
+                  agent: { ...s.agent, controller: q.agent },
+                  user: { ...s.user, controller: q.user },
+                }))
+              }
+            >
+              {t(q.key)}
+            </button>
+          ))}
+        </div>
+        <RoleCard role="agent" value={settings.agent} onChange={(agent) => update({ agent })} endpointFor={endpointFor} />
+        <RoleCard role="user" value={settings.user} onChange={(user) => update({ user })} endpointFor={endpointFor} />
+        {providersInUse.length > 0 && <p className="note">{t("modelNote")}</p>}
+      </section>
+
+      {providersInUse.length > 0 && (
+        <section className="panel-section">
+          <h2>{t("apiKeys")}</h2>
+          {providersInUse.map((p) => (
+            <div key={p}>
+              {p === "custom" && (
+                <label className="field">
+                  <span>{t("baseUrl")}</span>
+                  <input
+                    className="mono"
+                    value={settings.customBaseUrl}
+                    spellCheck={false}
+                    onChange={(e) => update({ customBaseUrl: e.target.value.trim() })}
+                  />
+                </label>
+              )}
+              <KeyInput
+                provider={p}
+                value={settings.keys[p] ?? ""}
+                onChange={(v) => update((s) => ({ ...s, keys: { ...s.keys, [p]: v } }))}
+              />
+            </div>
+          ))}
+          <p className="note">{t("apiKeysNote")}</p>
+        </section>
+      )}
+
+      <section className="panel-section">
+        <h2>{t("options")}</h2>
+        <label className="field">
+          <span>
+            {t("maxSteps")} <small className="muted">{t("maxStepsHint")}</small>
+          </span>
+          <input
+            type="number"
+            min={0}
+            value={settings.maxAgentSteps}
+            onChange={(e) => update({ maxAgentSteps: Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
+          />
+        </label>
+        <label className="check">
+          <input type="checkbox" checked={settings.stepMode} onChange={(e) => update({ stepMode: e.target.checked })} />
+          <span>{t("stepMode")}</span>
+        </label>
+      </section>
+
+      <div className="start-bar">
+        <button type="button" className="btn btn-primary btn-block" disabled={loading || !taskCount} onClick={onStart}>
+          {episodeRunning ? t("newEpisode") : t("start")}
+        </button>
+      </div>
+    </div>
+  );
+}

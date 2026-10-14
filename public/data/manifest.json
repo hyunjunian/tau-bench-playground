@@ -1,0 +1,24 @@
+{
+  "source": "https://github.com/sierra-research/tau-bench",
+  "commit": "59a200c6d575d595120f1cb70fea53cef0632f6b",
+  "exported_at": "2026-10-14T04:23:10Z",
+  "terminate_tools": [
+    "transfer_to_human_agents"
+  ],
+  "domains": {
+    "retail": {
+      "splits": {
+        "test": 115,
+        "train": 500,
+        "dev": 20
+      },
+      "tools": 16
+    },
+    "airline": {
+      "splits": {
+        "test": 50
+      },
+      "tools": 14
+    }
+  }
+}

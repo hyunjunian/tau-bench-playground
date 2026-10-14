@@ -1,0 +1,413 @@
+import { useMemo, useState } from "react";
+import { useT } from "../i18n";
+import type { HistoryEntry } from "../state/history";
+import { compareDatabases } from "../tau/diff";
+import type { Domain, Task } from "../tau/env";
+import type { Episode, EpisodeState } from "../tau/episode";
+import { PyDict, type PyValue, jsonPretty, strictEqual } from "../tau/py";
+import { isReadTool, valueText } from "../ui/format";
+import { JsonBlock } from "./JsonBlock";
+import { Markdown } from "./Markdown";
+
+export type InspectorTab = "task" | "policy" | "tools" | "result" | "data" | "history";
+
+function Spoiler({ hint, children, initiallyOpen }: { hint: string; children: React.ReactNode; initiallyOpen: boolean }) {
+  const t = useT();
+  const [open, setOpen] = useState(initiallyOpen);
+  const [prev, setPrev] = useState(initiallyOpen);
+  if (prev !== initiallyOpen) {
+    setPrev(initiallyOpen);
+    setOpen(initiallyOpen);
+  }
+  if (open) {
+    return (
+      <div className="spoiler open">
+        {children}
+        {!initiallyOpen && (
+          <button type="button" className="btn btn-small btn-ghost" onClick={() => setOpen(false)}>
+            {t("conceal")}
+          </button>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="spoiler">
+      <span className="muted">{hint}</span>
+      <button type="button" className="btn btn-small" onClick={() => setOpen(true)}>
+        {t("reveal")}
+      </button>
+    </div>
+  );
+}
+
+function ActionList({ actions }: { actions: { name: string; kwargs: PyDict }[] }) {
+  const t = useT();
+  if (actions.length === 0) return <p className="muted">{t("noToolCalls")}</p>;
+  return (
+    <ol className="action-list">
+      {actions.map((a, i) => (
+        <li key={i} className={isReadTool(a.name) ? "read" : "write"}>
+          <code className="tool-name">{a.name}</code>
+          <span className={`badge ${isReadTool(a.name) ? "" : "badge-write"}`}>{isReadTool(a.name) ? t("readTool") : t("writeTool")}</span>
+          <JsonBlock text={jsonPretty(a.kwargs)} className="compact" />
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function TaskTab({ task, agentIsHuman, done }: { task: Task; agentIsHuman: boolean; done: boolean }) {
+  const t = useT();
+  // A human agent should only learn the customer's goal from the conversation.
+  const hideInstruction = agentIsHuman && !done;
+  return (
+    <div className="tab-body">
+      <div className="kv">
+        <span>{t("userId")}</span>
+        <code>{task.user_id}</code>
+      </div>
+      <h3>{t("instruction")}</h3>
+      {hideInstruction ? (
+        <Spoiler hint={t("instructionHidden")} initiallyOpen={false}>
+          <p className="instruction">{task.instruction}</p>
+        </Spoiler>
+      ) : (
+        <p className="instruction">{task.instruction}</p>
+      )}
+      <h3>{t("requiredOutputs")}</h3>
+      {task.outputs.length === 0 ? (
+        <p className="muted">{t("noOutputs")}</p>
+      ) : (
+        <Spoiler hint={t("gtHidden")} initiallyOpen={done}>
+          <ul>
+            {task.outputs.map((o) => (
+              <li key={o}>
+                <code>{o}</code>
+              </li>
+            ))}
+          </ul>
+        </Spoiler>
+      )}
+      <h3>{t("gtActions")}</h3>
+      <Spoiler hint={t("gtHidden")} initiallyOpen={done}>
+        <ActionList actions={task.actions} />
+      </Spoiler>
+    </div>
+  );
+}
+
+function ToolsTab({ domain, onUse, canUse }: { domain: Domain; onUse: (name: string) => void; canUse: boolean }) {
+  const t = useT();
+  return (
+    <div className="tab-body">
+      <p className="note">{t("toolsNote")}</p>
+      {domain.toolsInfo.map((info) => {
+        const props = Object.entries(info.function.parameters.properties ?? {});
+        const read = isReadTool(info.function.name);
+        return (
+          <div key={info.function.name} className="tool-doc">
+            <div className="row space">
+              <span>
+                <code className="tool-name">{info.function.name}</code>{" "}
+                <span className={`badge ${read ? "" : "badge-write"}`}>{read ? t("readTool") : t("writeTool")}</span>
+              </span>
+              {canUse && (
+                <button type="button" className="btn btn-small" onClick={() => onUse(info.function.name)}>
+                  {t("useTool")}
+                </button>
+              )}
+            </div>
+            <p>{info.function.description}</p>
+            {props.length > 0 && (
+              <ul className="params">
+                {props.map(([name, s]) => (
+                  <li key={name}>
+                    <code>{name}</code> <span className="muted">{s.type}</span>
+                    {s.enum && <span className="muted"> ∈ {s.enum.join(" | ")}</span>}
+                    {s.description && <div className="muted">{s.description}</div>}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ResultTab({ episode, state }: { episode: Episode | null; state: EpisodeState | null }) {
+  const t = useT();
+  const done = state?.done;
+  const comparisons = useMemo(() => {
+    if (!episode || !done?.info) return null;
+    return compareDatabases(episode.setup.domain.pristine, episode.env.data, done.info.gtData);
+  }, [episode, done]);
+  if (!episode || !done) return <div className="tab-body muted">{t("resultPending")}</div>;
+  const info = done.info;
+  const gtWrites = episode.setup.task.actions.filter((a) => !isReadTool(a.name));
+  const agentTools = episode.env.actions.filter((a) => a.name !== "respond");
+  return (
+    <div className="tab-body">
+      <div className={`result-summary ${done.reward === 1 ? "ok" : "bad"}`}>
+        <span className="reward-big">{done.reward.toFixed(1)}</span>
+        {info && (
+          <div>
+            <div className={info.rActions ? "check-ok" : "check-bad"}>
+              {info.rActions ? "✓" : "✗"} {t("rActions")}
+            </div>
+            {info.rOutputs !== null && (
+              <div className={info.rOutputs === 1 ? "check-ok" : "check-bad"}>
+                {info.rOutputs === 1 ? "✓" : "✗"} {t("rOutputs")}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {info && info.outputs.length > 0 && (
+        <>
+          <h3>{t("requiredOutputs")}</h3>
+          <ul className="outputs">
+            {info.outputs.map((o) => (
+              <li key={o.output} className={o.found ? "check-ok" : "check-bad"}>
+                <code>{o.output}</code> — {o.found ? t("outputFound") : t("outputMissing")}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {comparisons && (
+        <>
+          <h3>{t("dbChanges")}</h3>
+          {comparisons.length === 0 && <p className="muted">{t("dbNoChanges")}</p>}
+          {comparisons.map((c) => (
+            <details key={`${c.collection}/${c.key}`} className={`record ${c.ok ? "ok" : "bad"}`} open={!c.ok}>
+              <summary>
+                <span className={c.ok ? "check-ok" : "check-bad"}>{c.ok ? "✓" : "✗"}</span>{" "}
+                <code>
+                  {c.collection}/{c.key}
+                </code>{" "}
+                <span className="muted">{c.ok ? t("recordOk") : t("recordBad")}</span>
+              </summary>
+              {c.ok ? (
+                c.actual !== undefined && <JsonBlock text={jsonPretty(c.actual)} className="compact" />
+              ) : (
+                <table className="diff">
+                  <thead>
+                    <tr>
+                      <th>{t("pathCol")}</th>
+                      <th>{t("expected")}</th>
+                      <th>{t("actual")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {c.diffs.map((d) => (
+                      <tr key={d.path}>
+                        <td>
+                          <code>{d.path}</code>
+                        </td>
+                        <td>
+                          <code>{valueText(d.expected, t("absent"))}</code>
+                        </td>
+                        <td>
+                          <code>{valueText(d.actual, t("absent"))}</code>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </details>
+          ))}
+        </>
+      )}
+
+      <h3>{t("gtActions")}</h3>
+      <ol className="action-list">
+        {gtWrites.map((a, i) => {
+          const matched = agentTools.some((x) => x.name === a.name && strictEqual(x.kwargs, a.kwargs));
+          return (
+            <li key={i} className="write">
+              <span className={matched ? "check-ok" : "check-bad"} title={matched ? t("matchedGt") : undefined}>
+                {matched ? "✓" : "✗"}
+              </span>{" "}
+              <code className="tool-name">{a.name}</code>
+              <JsonBlock text={jsonPretty(a.kwargs)} className="compact" />
+            </li>
+          );
+        })}
+      </ol>
+      <h3>{t("agentActionsTitle")}</h3>
+      <ActionList actions={agentTools} />
+    </div>
+  );
+}
+
+const LOOKUPS: [string, (id: string) => string[]][] = [
+  ["users", (id) => [id]],
+  ["orders", (id) => [id, id.startsWith("#") ? id : `#${id}`]],
+  ["products", (id) => [id]],
+  ["reservations", (id) => [id, id.toUpperCase()]],
+  ["flights", (id) => [id, id.toUpperCase()]],
+];
+
+function lookup(db: PyDict, raw: string): { path: string; value: PyValue }[] {
+  const id = raw.trim();
+  if (!id) return [];
+  const out: { path: string; value: PyValue }[] = [];
+  for (const [collection, candidates] of LOOKUPS) {
+    const table = db.get(collection);
+    if (!(table instanceof PyDict)) continue;
+    for (const key of new Set(candidates(id))) {
+      const v = table.get(key);
+      if (v !== undefined) out.push({ path: `${collection}/${key}`, value: v });
+    }
+  }
+  // item ids live inside product variants
+  const products = db.get("products");
+  if (products instanceof PyDict && /^\d+$/.test(id)) {
+    for (const [pid, p] of products) {
+      const variants = (p as PyDict).get("variants");
+      if (variants instanceof PyDict && variants.has(id)) {
+        out.push({ path: `products/${pid}/variants/${id}`, value: variants.get(id)! });
+      }
+    }
+  }
+  return out;
+}
+
+function DataTab({ domain, episode }: { domain: Domain; episode: Episode | null }) {
+  const t = useT();
+  const [query, setQuery] = useState("");
+  const db = episode?.setup.domain === domain ? episode.env.data : domain.pristine;
+  const results = lookup(db, query);
+  return (
+    <div className="tab-body">
+      <p className="note">{t("dataNote")}</p>
+      <input className="mono" placeholder={t("dataSearch")} value={query} spellCheck={false} onChange={(e) => setQuery(e.target.value)} />
+      <small className="muted">{db === domain.pristine ? t("dataInitial") : t("dataLive")}</small>
+      {query.trim() && results.length === 0 && <p className="muted">{t("dataNotFound")}</p>}
+      {results.map((r) => (
+        <div key={r.path}>
+          <h3>
+            <code>{r.path}</code>
+          </h3>
+          <JsonBlock text={jsonPretty(r.value)} className="compact" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HistoryTab({ entries, onClear }: { entries: HistoryEntry[]; onClear: () => void }) {
+  const t = useT();
+  if (entries.length === 0) return <div className="tab-body muted">{t("historyEmpty")}</div>;
+  const avg = entries.reduce((s, e) => s + e.reward, 0) / entries.length;
+  return (
+    <div className="tab-body">
+      <div className="row space">
+        <span>{t("historyAverage", { avg: avg.toFixed(3), n: entries.length })}</span>
+        <button type="button" className="btn btn-small btn-ghost" onClick={onClear}>
+          {t("historyClear")}
+        </button>
+      </div>
+      <table className="history">
+        <thead>
+          <tr>
+            <th>{t("colWhen")}</th>
+            <th>{t("colTask")}</th>
+            <th>{t("colAgent")}</th>
+            <th>{t("colUser")}</th>
+            <th>{t("colReward")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((e) => (
+            <tr key={e.id} title={e.reason}>
+              <td>{new Date(e.at).toLocaleString()}</td>
+              <td>
+                {e.domain}/{e.split}#{e.index}
+              </td>
+              <td>{e.agent}</td>
+              <td>{e.user}</td>
+              <td className={e.reward === 1 ? "check-ok" : "check-bad"}>{e.reward.toFixed(1)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function Inspector({
+  tab,
+  setTab,
+  domain,
+  task,
+  episode,
+  state,
+  agentIsHuman,
+  taskDone,
+  history,
+  onClearHistory,
+  onUseTool,
+}: {
+  tab: InspectorTab;
+  setTab: (t: InspectorTab) => void;
+  domain: Domain | null;
+  task: Task | null;
+  episode: Episode | null;
+  state: EpisodeState | null;
+  /** Whether the agent of the shown task is (or will be) played by a human. */
+  agentIsHuman: boolean;
+  /** The shown task belongs to a finished episode (spoilers can open). */
+  taskDone: boolean;
+  history: HistoryEntry[];
+  onClearHistory: () => void;
+  onUseTool: (name: string) => void;
+}) {
+  const t = useT();
+  const tabs: [InspectorTab, string][] = [
+    ["task", t("tabTask")],
+    ["policy", t("tabPolicy")],
+    ["tools", t("tabTools")],
+    ["result", t("tabResult")],
+    ["data", t("tabData")],
+    ["history", t("tabHistory")],
+  ];
+  const canUseTool = !!state && state.turn === "agent" && !!episode && episode.controllerOf("agent") === "human";
+  return (
+    <div className="inspector">
+      <div className="tabs" role="tablist">
+        {tabs.map(([id, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
+            {label}
+            {id === "result" && state?.done && <span className={`dot ${state.done.reward === 1 ? "ok" : "bad"}`} />}
+          </button>
+        ))}
+      </div>
+      {!domain || !task ? (
+        <div className="tab-body muted">{t("loading")}</div>
+      ) : tab === "task" ? (
+        <TaskTab task={task} agentIsHuman={agentIsHuman} done={taskDone} />
+      ) : tab === "policy" ? (
+        <div className="tab-body">
+          <p className="note">{t("policyNote")}</p>
+          <Markdown text={domain.wiki} className="policy" />
+        </div>
+      ) : tab === "tools" ? (
+        <ToolsTab domain={domain} onUse={onUseTool} canUse={canUseTool} />
+      ) : tab === "result" ? (
+        <ResultTab episode={episode} state={state} />
+      ) : tab === "data" ? (
+        <DataTab domain={domain} episode={episode} />
+      ) : (
+        <HistoryTab entries={history} onClear={onClearHistory} />
+      )}
+    </div>
+  );
+}
+

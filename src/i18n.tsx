@@ -1,0 +1,403 @@
+import { createContext, useContext } from "react";
+
+export type Lang = "ko" | "en";
+
+const en = {
+  appTitle: "τ-bench Playground",
+  appTagline: "Play the agent or the customer yourself, or let a model do it.",
+  paper: "Paper",
+  source: "Source",
+
+  setupTask: "Task",
+  domainRetail: "Retail",
+  domainAirline: "Airline",
+  split: "Split",
+  taskNumber: "Task #",
+  taskOf: "(0–{n})",
+  randomTask: "Random task",
+  prevTask: "Previous task",
+  nextTask: "Next task",
+
+  setupRoles: "Who plays which role?",
+  quickWatch: "Watch model vs model",
+  quickPlayAgent: "I play the agent",
+  quickPlayUser: "I play the customer",
+  quickHumans: "Human vs human",
+  roleAgent: "Agent",
+  roleAgentHint: "customer-service agent with tools + policy",
+  roleUser: "User",
+  roleUserHint: "customer who has a goal (task instruction)",
+  human: "Human",
+  model: "Model",
+  you: "You",
+
+  provider: "Provider",
+  modelId: "Model",
+  customModel: "Other model id…",
+  loadModels: "Refresh list",
+  temperature: "Temperature",
+  temperatureDefault: "default",
+  reasoning: "Reasoning effort",
+  reasoningDefault: "default",
+  tauScore: "τ²-airline {score}%",
+  bestFree: "best free",
+  modelNote:
+    "Default: Gemini 3.5 Flash-Lite on Google AI Studio's free tier, the top free model on OpenRouter's τ²-Bench airline leaderboard (Oct 2026).",
+
+  apiKeys: "API keys",
+  apiKeysNote: "Keys are stored only in this browser (localStorage) and sent only to the provider.",
+  getFreeKey: "Get a free key",
+  baseUrl: "Base URL",
+  show: "Show",
+  hide: "Hide",
+  keyMissing: "Missing API key for {provider}. Add it under API keys.",
+
+  options: "Options",
+  maxSteps: "Max agent actions",
+  maxStepsHint: "tau-bench uses 30; 0 = unlimited",
+  stepMode: "Pause before each model turn",
+
+  start: "Start episode",
+  restart: "Restart",
+  newEpisode: "New episode",
+  confirmNew: "End the current episode and start a new one?",
+  loading: "Loading…",
+  loadFailed: "Failed to load data: {error}",
+
+  welcomeTitle: "How it works",
+  welcomeBody:
+    "Each τ-bench task gives a simulated customer a hidden goal. The agent must solve it through a chat, using the domain's tools and following its policy. When the conversation ends, the database is compared with the expected end state and the agent's replies are checked for required information. Reward is 1 only if both match.",
+  welcomeStep1: "Pick a domain and task.",
+  welcomeStep2: "Choose Human or Model for the agent and the user.",
+  welcomeStep3: "Add a free API key if a model is involved, then start.",
+
+  greetingLabel: "fixed opening line",
+  userLabel: "User",
+  agentLabel: "Agent",
+  toolLabel: "Tool call",
+  step: "step {n}",
+  observation: "Result",
+  notSentToUser: "Text with the tool call (not sent to the user):",
+  thoughts: "Model reasoning",
+  stopBadge: "ended the conversation",
+  latency: "{ms} ms",
+
+  thinkingAgent: "Agent model is working…",
+  thinkingUser: "User model is writing…",
+  waitingRetry: "Rate limited: retrying in {s}s",
+  waitingHumanAgent: "Your turn as the agent",
+  waitingHumanUser: "Your turn as the customer",
+  paused: "Paused before the next model turn",
+  pause: "Pause",
+  stop: "Stop",
+  resume: "Continue",
+  stepOnce: "Run one step",
+  retry: "Retry",
+  endNow: "End & score now",
+  errorTitle: "Something went wrong",
+  agentActions: "agent actions {n}",
+  tokens: "{n} tokens",
+
+  replyTab: "Reply to user",
+  toolTab: "Call a tool",
+  replyPlaceholder: "Write to the customer… (Ctrl+Enter to send)",
+  send: "Send",
+  chooseTool: "Tool",
+  runTool: "Run tool",
+  jsonMode: "Edit JSON",
+  formMode: "Form",
+  argsJson: "Arguments (JSON object)",
+  invalidJson: "Invalid JSON: {error}",
+  addRow: "Add",
+  removeRow: "Remove",
+  listHint: "comma or space separated, order matters",
+  lastResult: "Last result",
+
+  userInstructionTitle: "Your goal (task instruction)",
+  userRules:
+    "Simulator rules: one short message at a time, reveal details only when needed, don't invent information, and end the chat when your goal is met.",
+  userPlaceholder: "Write as the customer… (Ctrl+Enter to send)",
+  endConversation: "End conversation (###STOP###)",
+
+  doneUserStop: "The user ended the conversation.",
+  doneTransfer: "The agent transferred to a human agent.",
+  doneMaxSteps: "Stopped after the maximum number of agent actions (tau-bench records reward 0).",
+  doneManual: "Ended manually.",
+  doneCrash: "The environment crashed.",
+  rewardLabel: "Reward",
+  viewDetails: "Details",
+  download: "Download JSON",
+  sameTaskAgain: "Same task again",
+
+  tabTask: "Task",
+  tabPolicy: "Policy",
+  tabTools: "Tools",
+  tabResult: "Result",
+  tabData: "Data",
+  tabHistory: "History",
+
+  instruction: "User instruction",
+  instructionHidden:
+    "Hidden from the agent: a human agent should solve the task from the conversation alone.",
+  reveal: "Reveal",
+  conceal: "Hide",
+  userId: "User ID",
+  gtActions: "Ground-truth actions",
+  gtHidden: "Spoiler: the expected database writes.",
+  requiredOutputs: "Required outputs",
+  noOutputs: "none",
+  policyNote: "This policy is the agent's system prompt.",
+  toolsNote: "The agent sees exactly these schemas. Read tools look things up; write tools change the database.",
+  readTool: "read",
+  writeTool: "write",
+  useTool: "Use",
+
+  resultPending: "The result appears when the episode ends.",
+  rActions: "Database matches expected end state",
+  rOutputs: "Required info given to the user",
+  yes: "yes",
+  no: "no",
+  outputFound: "found",
+  outputMissing: "missing",
+  dbChanges: "Database changes",
+  dbNoChanges: "Neither the agent nor the ground truth changed the database.",
+  recordOk: "matches expected",
+  recordBad: "differs",
+  expected: "Expected",
+  actual: "Agent",
+  pathCol: "Field",
+  absent: "(absent)",
+  agentActionsTitle: "Agent's tool calls",
+  matchedGt: "matches a ground-truth action",
+  noToolCalls: "No tool calls.",
+
+  dataNote: "Debug view of the live database. In τ-bench the agent can only see it through tools.",
+  dataSearch: "ID (user, order, product, reservation, flight)…",
+  dataNotFound: "Not found.",
+  dataLive: "current episode",
+  dataInitial: "initial",
+
+  historyEmpty: "Finished episodes are listed here (stored in this browser).",
+  historyClear: "Clear",
+  historyAverage: "Average reward {avg} over {n} episodes",
+  colWhen: "When",
+  colTask: "Task",
+  colAgent: "Agent",
+  colUser: "User",
+  colReward: "Reward",
+  colEnd: "End",
+};
+
+type Dict = Record<keyof typeof en, string>;
+
+const ko: Dict = {
+  appTitle: "τ-bench 플레이그라운드",
+  appTagline: "에이전트나 고객 역할을 직접 하거나, 모델에게 맡겨 보세요.",
+  paper: "논문",
+  source: "소스",
+
+  setupTask: "태스크",
+  domainRetail: "리테일",
+  domainAirline: "항공",
+  split: "스플릿",
+  taskNumber: "태스크 #",
+  taskOf: "(0–{n})",
+  randomTask: "무작위 태스크",
+  prevTask: "이전 태스크",
+  nextTask: "다음 태스크",
+
+  setupRoles: "누가 어떤 역할을 맡을까요?",
+  quickWatch: "모델 vs 모델 관전",
+  quickPlayAgent: "내가 에이전트",
+  quickPlayUser: "내가 고객",
+  quickHumans: "사람 vs 사람",
+  roleAgent: "에이전트",
+  roleAgentHint: "툴과 정책을 가진 상담원",
+  roleUser: "유저",
+  roleUserHint: "목표(태스크 지시문)를 가진 고객",
+  human: "사람",
+  model: "모델",
+  you: "나",
+
+  provider: "제공자",
+  modelId: "모델",
+  customModel: "다른 모델 ID…",
+  loadModels: "목록 새로고침",
+  temperature: "Temperature",
+  temperatureDefault: "기본값",
+  reasoning: "추론 강도",
+  reasoningDefault: "기본값",
+  tauScore: "τ²-airline {score}%",
+  bestFree: "무료 1위",
+  modelNote:
+    "기본값: Google AI Studio 무료 티어의 Gemini 3.5 Flash-Lite. OpenRouter τ²-Bench airline 리더보드(2026년 10월)에서 무료 모델 중 1위입니다.",
+
+  apiKeys: "API 키",
+  apiKeysNote: "키는 이 브라우저(localStorage)에만 저장되고 해당 제공자에게만 전송됩니다.",
+  getFreeKey: "무료 키 발급",
+  baseUrl: "Base URL",
+  show: "보기",
+  hide: "숨기기",
+  keyMissing: "{provider} API 키가 없습니다. API 키 항목에 입력해 주세요.",
+
+  options: "옵션",
+  maxSteps: "에이전트 최대 행동 수",
+  maxStepsHint: "tau-bench 기본값 30, 0 = 무제한",
+  stepMode: "모델 차례마다 일시정지",
+
+  start: "에피소드 시작",
+  restart: "다시 시작",
+  newEpisode: "새 에피소드",
+  confirmNew: "진행 중인 에피소드를 끝내고 새로 시작할까요?",
+  loading: "불러오는 중…",
+  loadFailed: "데이터를 불러오지 못했습니다: {error}",
+
+  welcomeTitle: "진행 방식",
+  welcomeBody:
+    "각 τ-bench 태스크는 시뮬레이션 고객에게 숨겨진 목표를 줍니다. 에이전트는 도메인의 툴을 쓰고 정책을 지키면서 대화로 문제를 해결해야 합니다. 대화가 끝나면 데이터베이스가 기대 상태와 같은지, 에이전트가 필요한 정보를 고객에게 알려 줬는지를 확인하고, 둘 다 맞아야 reward 1을 받습니다.",
+  welcomeStep1: "도메인과 태스크를 고르세요.",
+  welcomeStep2: "에이전트와 유저를 각각 사람 또는 모델로 정하세요.",
+  welcomeStep3: "모델을 쓰면 무료 API 키를 넣고 시작하세요.",
+
+  greetingLabel: "고정 첫 인사",
+  userLabel: "유저",
+  agentLabel: "에이전트",
+  toolLabel: "툴 호출",
+  step: "{n}번째 행동",
+  observation: "결과",
+  notSentToUser: "툴 호출과 함께 나온 텍스트 (유저에게 전달되지 않음):",
+  thoughts: "모델 추론",
+  stopBadge: "대화 종료",
+  latency: "{ms} ms",
+
+  thinkingAgent: "에이전트 모델이 작업 중…",
+  thinkingUser: "유저 모델이 답장 작성 중…",
+  waitingRetry: "요청 한도 초과: {s}초 후 재시도",
+  waitingHumanAgent: "에이전트로서 내 차례",
+  waitingHumanUser: "고객으로서 내 차례",
+  paused: "다음 모델 차례 전에 일시정지됨",
+  pause: "일시정지",
+  stop: "중지",
+  resume: "계속",
+  stepOnce: "한 단계 실행",
+  retry: "다시 시도",
+  endNow: "지금 종료하고 채점",
+  errorTitle: "오류가 발생했습니다",
+  agentActions: "에이전트 행동 {n}",
+  tokens: "{n} 토큰",
+
+  replyTab: "유저에게 답장",
+  toolTab: "툴 호출",
+  replyPlaceholder: "고객에게 보낼 메시지… (Ctrl+Enter 전송)",
+  send: "보내기",
+  chooseTool: "툴",
+  runTool: "툴 실행",
+  jsonMode: "JSON 편집",
+  formMode: "폼",
+  argsJson: "인자 (JSON 객체)",
+  invalidJson: "잘못된 JSON: {error}",
+  addRow: "추가",
+  removeRow: "삭제",
+  listHint: "쉼표나 공백으로 구분, 순서 중요",
+  lastResult: "최근 결과",
+
+  userInstructionTitle: "내 목표 (태스크 지시문)",
+  userRules:
+    "시뮬레이터 규칙: 한 번에 한 줄씩, 필요한 정보만 조금씩 말하고, 없는 정보는 지어내지 말고, 목표를 이루면 대화를 끝내세요.",
+  userPlaceholder: "고객으로서 메시지 작성… (Ctrl+Enter 전송)",
+  endConversation: "대화 종료 (###STOP###)",
+
+  doneUserStop: "유저가 대화를 끝냈습니다.",
+  doneTransfer: "에이전트가 상담원에게 이관했습니다.",
+  doneMaxSteps: "에이전트 최대 행동 수에 도달해 중단했습니다 (tau-bench는 reward 0으로 기록).",
+  doneManual: "직접 종료했습니다.",
+  doneCrash: "환경 오류로 종료되었습니다.",
+  rewardLabel: "Reward",
+  viewDetails: "상세 보기",
+  download: "JSON 다운로드",
+  sameTaskAgain: "같은 태스크 다시",
+
+  tabTask: "태스크",
+  tabPolicy: "정책",
+  tabTools: "툴",
+  tabResult: "결과",
+  tabData: "데이터",
+  tabHistory: "기록",
+
+  instruction: "유저 지시문",
+  instructionHidden: "에이전트에게는 숨겨진 정보입니다. 사람이 에이전트를 맡으면 대화만으로 풀어야 합니다.",
+  reveal: "보기",
+  conceal: "숨기기",
+  userId: "유저 ID",
+  gtActions: "정답 행동",
+  gtHidden: "스포일러: 기대되는 데이터베이스 변경입니다.",
+  requiredOutputs: "필수 출력",
+  noOutputs: "없음",
+  policyNote: "이 정책이 에이전트의 시스템 프롬프트입니다.",
+  toolsNote: "에이전트가 보는 툴 스키마 그대로입니다. 조회 툴은 정보를 읽고, 쓰기 툴은 데이터베이스를 바꿉니다.",
+  readTool: "조회",
+  writeTool: "쓰기",
+  useTool: "사용",
+
+  resultPending: "에피소드가 끝나면 결과가 표시됩니다.",
+  rActions: "데이터베이스가 기대 상태와 일치",
+  rOutputs: "필요한 정보를 유저에게 전달",
+  yes: "예",
+  no: "아니오",
+  outputFound: "있음",
+  outputMissing: "없음",
+  dbChanges: "데이터베이스 변경",
+  dbNoChanges: "에이전트와 정답 모두 데이터베이스를 바꾸지 않았습니다.",
+  recordOk: "기대와 일치",
+  recordBad: "불일치",
+  expected: "기대값",
+  actual: "에이전트",
+  pathCol: "필드",
+  absent: "(없음)",
+  agentActionsTitle: "에이전트의 툴 호출",
+  matchedGt: "정답 행동과 일치",
+  noToolCalls: "툴 호출 없음.",
+
+  dataNote: "현재 데이터베이스의 디버그 뷰입니다. τ-bench에서 에이전트는 툴로만 데이터베이스를 볼 수 있습니다.",
+  dataSearch: "ID (유저, 주문, 상품, 예약, 항공편)…",
+  dataNotFound: "찾을 수 없습니다.",
+  dataLive: "현재 에피소드",
+  dataInitial: "초기 상태",
+
+  historyEmpty: "끝난 에피소드가 여기에 기록됩니다 (이 브라우저에 저장).",
+  historyClear: "지우기",
+  historyAverage: "{n}개 에피소드 평균 reward {avg}",
+  colWhen: "시각",
+  colTask: "태스크",
+  colAgent: "에이전트",
+  colUser: "유저",
+  colReward: "Reward",
+  colEnd: "종료",
+};
+
+export type TKey = keyof typeof en;
+export type TFunction = (key: TKey, vars?: Record<string, string | number>) => string;
+
+const STRINGS: Record<Lang, Dict> = { en, ko };
+
+export function makeT(lang: Lang): TFunction {
+  return (key, vars) => {
+    let s = STRINGS[lang][key] ?? en[key] ?? key;
+    if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
+    return s;
+  };
+}
+
+export const LangContext = createContext<{ lang: Lang; t: TFunction }>({ lang: "en", t: makeT("en") });
+
+export function useT(): TFunction {
+  return useContext(LangContext).t;
+}
+
+export function detectLang(): Lang {
+  try {
+    return navigator.language?.toLowerCase().startsWith("ko") ? "ko" : "en";
+  } catch {
+    return "en";
+  }
+}
