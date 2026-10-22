@@ -24,6 +24,10 @@ export interface BatchResult extends BatchRunRef {
   reward: number;
   reason: EndReason;
   steps: number;
+  /** Wall-clock time of the episode. */
+  ms: number;
+  /** Prompt + completion tokens reported by the providers, both roles. */
+  tokens: number;
   /** Episode.toJSON() plus `trial`. */
   record: Record<string, unknown>;
 }
@@ -210,7 +214,9 @@ export class BatchRun {
     const s = episode.getState();
     if (!s.done) return;
     const record = { ...episode.toJSON(), trial: run.trial };
-    const result: BatchResult = { ...run, reward: s.done.reward, reason: s.done.reason, steps: s.agentSteps, record };
+    const ms = episode.finishedAt && episode.startedAt ? episode.finishedAt.getTime() - episode.startedAt.getTime() : 0;
+    const tokens = s.usage ? s.usage.agent.prompt + s.usage.agent.completion + s.usage.user.prompt + s.usage.user.completion : 0;
+    const result: BatchResult = { ...run, reward: s.done.reward, reason: s.done.reason, steps: s.agentSteps, ms, tokens, record };
     this.cancelRetry();
     this.unwatch?.();
     this.unwatch = null;

@@ -35,6 +35,13 @@ export function BatchCard({
   const outcomes = results.map((r) => ({ task: String(r.index), reward: r.reward }));
   const avg = averageReward(outcomes);
   const passK = passHatK(outcomes);
+  const tokens = results.reduce((s, r) => s + r.tokens, 0);
+  const timed = results.filter((r) => r.ms > 0);
+  const left = total - results.length;
+  const etaMin =
+    status === "running" && timed.length > 0 && left > 0
+      ? Math.ceil((left * timed.reduce((s, r) => s + r.ms, 0)) / timed.length / 60_000)
+      : null;
   const byRun = new Map(results.map((r) => [`${r.index}/${r.trial}`, r]));
   const isCurrent = (run: BatchRunRef) => current?.index === run.index && current.trial === run.trial;
   const first = plan.indices[0];
@@ -57,6 +64,8 @@ export function BatchCard({
             {statusText}
           </span>
           <span className="muted">{t("batchProgress", { done: results.length, total })}</span>
+          {etaMin !== null && <span className="muted">{t("batchEta", { m: etaMin })}</span>}
+          {tokens > 0 && <span className="muted">{t("tokens", { n: tokens.toLocaleString() })}</span>}
           {waitingOnError && !state.autoRetry && <span className="batch-retry">{t("batchWaiting")}</span>}
           {state.autoRetry && (
             <span className="batch-retry">
