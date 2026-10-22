@@ -16,6 +16,7 @@ export function BatchCard({
   onResume,
   onClose,
   onDownload,
+  onRerunFailed,
   onOpen,
 }: {
   state: BatchState;
@@ -25,6 +26,7 @@ export function BatchCard({
   onResume: () => void;
   onClose: () => void;
   onDownload: () => void;
+  onRerunFailed: () => void;
   onOpen: (result: BatchResult) => void;
 }) {
   const t = useT();
@@ -37,6 +39,8 @@ export function BatchCard({
   const isCurrent = (run: BatchRunRef) => current?.index === run.index && current.trial === run.trial;
   const first = plan.indices[0];
   const last = plan.indices[plan.indices.length - 1];
+  const contiguous = plan.indices.every((index, i) => index === first + i);
+  const range = contiguous ? `#${first}–${last}` : t("batchTaskCount", { n: plan.indices.length });
   const statusText = { running: t("batchRunning"), stopped: t("batchStopped"), done: t("batchDone") }[status];
   const now = useNow(!!state.autoRetry);
 
@@ -46,7 +50,7 @@ export function BatchCard({
         <div className="batch-stats">
           <strong>{t("batchTitle")}</strong>
           <span className="pill">
-            {plan.domain} · {plan.split} · #{first}–{last} × {plan.trials}
+            {plan.domain} · {plan.split} · {range} × {plan.trials}
           </span>
           <span className={`badge ${status === "done" ? "badge-accent" : ""}`}>
             {status === "running" && <span className="spinner" aria-hidden />}
@@ -80,6 +84,11 @@ export function BatchCard({
           {status === "stopped" && (
             <button type="button" className="btn btn-small btn-primary" onClick={onResume}>
               {t("batchResume")}
+            </button>
+          )}
+          {status !== "running" && results.some((r) => !isSuccess(r.reward)) && (
+            <button type="button" className="btn btn-small" title={t("batchRerunHint")} onClick={onRerunFailed}>
+              {t("batchRerun")}
             </button>
           )}
           {results.length > 0 && (

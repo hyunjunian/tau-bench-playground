@@ -11,9 +11,10 @@ import { type Endpoint, type ModelConfig, PROVIDERS, type ProviderId } from "./l
 import { archiveEpisode, loadArchivedEpisode } from "./state/archive";
 import { type HistoryEntry, useHistory } from "./state/history";
 import { type Theme, taskFromHash, taskHash, useSettings } from "./state/settings";
-import { BatchRun, type BatchResult, type BatchState } from "./tau/batch";
+import { type BatchPlan, BatchRun, type BatchResult, type BatchState } from "./tau/batch";
 import type { Domain, Task } from "./tau/env";
 import { type Controller, Episode, type EpisodeState, type Role } from "./tau/episode";
+import { isSuccess } from "./tau/metrics";
 import { type EpisodeRecord, parseRecordsFile, replayRecord } from "./tau/records";
 import { downloadJson } from "./ui/format";
 
@@ -280,24 +281,36 @@ export default function App() {
     }
   };
 
-  const startBatch = () => {
-    if (!domain || !tasks || !tasksReady || tasks.length === 0) return;
+  const runBatch = (plan: BatchPlan, batchDomain: Domain, batchTasks: Task[]) => {
     if (!confirmReplace()) return;
-    const b = settings.batch;
-    const from = Math.min(b.from, tasks.length - 1);
-    const to = Math.min(Math.max(b.to, from), tasks.length - 1);
-    const indices = Array.from({ length: to - from + 1 }, (_, i) => from + i);
-    const batchDomain = domain;
-    const batchTasks = tasks;
-    const split = settings.split;
-    const run = new BatchRun({ domain: batchDomain.name, split, indices, trials: b.trials }, ({ index, trial }, onFinish) =>
+    const run = new BatchRun(plan, ({ index, trial }, onFinish) =>
       launch(
-        { domain: batchDomain, task: batchTasks[index], split, index },
+        { domain: batchDomain, task: batchTasks[index], split: plan.split, index },
         { controllers: { agent: "model", user: "model" }, trial, unattended: true, onFinish },
       ),
     );
     setBatch(run);
     run.start();
+  };
+
+  const startBatch = () => {
+    if (!domain || !tasks || !tasksReady || tasks.length === 0) return;
+    const b = settings.batch;
+    const from = Math.min(b.from, tasks.length - 1);
+    const to = Math.min(Math.max(b.to, from), tasks.length - 1);
+    const indices = Array.from({ length: to - from + 1 }, (_, i) => from + i);
+    runBatch({ domain: domain.name, split: settings.split, indices, trials: b.trials }, domain, tasks);
+  };
+
+  /** A new batch over the tasks of the shown batch that failed at least once, with the same number of trials. */
+  const rerunFailed = async () => {
+    const shown = batchRef.current?.getState();
+    if (!shown) return;
+    const failed = [...new Set(shown.results.filter((r) => !isSuccess(r.reward)).map((r) => r.index))].sort((a, b) => a - b);
+    if (failed.length === 0) return;
+    const { plan } = shown;
+    const [batchDomain, batchTasks] = await Promise.all([loadDomain(plan.domain), loadTasks(plan.domain, plan.split)]);
+    runBatch({ ...plan, indices: failed }, batchDomain, batchTasks);
   };
 
   const closeBatch = () => {
@@ -514,6 +527,7 @@ export default function App() {
                 onResume={resumeBatch}
                 onClose={closeBatch}
                 onDownload={downloadBatch}
+                onRerunFailed={() => void rerunFailed()}
                 onOpen={openBatchResult}
               />
             )}
