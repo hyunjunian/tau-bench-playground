@@ -1,20 +1,12 @@
 /** Helpers behind the UI: tool-form suggestions, task links and stored-settings cleanup. */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { sanitize, taskFromHash, taskHash } from "../src/state/settings";
-import { Domain, type ToolSpec, parseTasks } from "../src/tau/env";
+import { parseTasks } from "../src/tau/env";
 import { PyDict } from "../src/tau/py";
 import { type SuggestionSource, collectSuggestions, suggestionsFor } from "../src/ui/suggest";
+import { domainFor, read } from "./helpers";
 
-const ROOT = join(__dirname, "..");
-const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
-const retail = new Domain(
-  "retail",
-  read("public/data/retail/db.json"),
-  JSON.parse(read("public/data/retail/tools.json")) as ToolSpec[],
-  "",
-);
+const retail = domainFor("retail");
 
 function observe(name: string, kwargs: Record<string, string>): SuggestionSource {
   const observation = retail.invokeTool(retail.freshData(), name, new PyDict(Object.entries(kwargs)))!;

@@ -3,32 +3,17 @@
  * trajectories, driven by a fake OpenAI-compatible endpoint whose agent
  * replays each task's ground-truth actions.
  */
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "../src/llm/client";
 import { BatchRun, MAX_AUTO_RETRIES } from "../src/tau/batch";
-import { Domain, type DomainName, type Task, TauEnv, type ToolSpec, parseTasks } from "../src/tau/env";
+import { type Domain, type DomainName, type Task, TauEnv } from "../src/tau/env";
 import { Episode, type EpisodeSetup } from "../src/tau/episode";
 import { averageReward, comb, passHatK } from "../src/tau/metrics";
 import { jsonDumps } from "../src/tau/py";
 import { modelsFromFileName, parseRecordsFile, resolveRecord } from "../src/tau/records";
+import { domainFor, tasksFor } from "./helpers";
 
-const ROOT = join(__dirname, "..");
-const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
-
-function loadDomain(name: DomainName): Domain {
-  const tools = JSON.parse(read(`public/data/${name}/tools.json`)) as ToolSpec[];
-  return new Domain(name, read(`public/data/${name}/db.json`), tools, read(`public/data/${name}/wiki.md`));
-}
-
-const domains = { retail: loadDomain("retail"), airline: loadDomain("airline") };
-const taskCache = new Map<string, Task[]>();
-function tasksFor(domain: DomainName, split: string): Task[] {
-  const key = `${domain}/${split}`;
-  if (!taskCache.has(key)) taskCache.set(key, parseTasks(read(`public/data/${domain}/tasks_${split}.json`)));
-  return taskCache.get(key)!;
-}
+const domains = { retail: domainFor("retail"), airline: domainFor("airline") };
 const loaders = {
   loadDomain: async (name: DomainName) => domains[name],
   loadTasks: async (domain: DomainName, split: string) => tasksFor(domain, split),
