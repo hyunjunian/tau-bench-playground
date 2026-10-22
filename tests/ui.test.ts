@@ -59,6 +59,33 @@ describe("tool-form suggestions", () => {
   });
 });
 
+describe("tool-form suggestions in the airline domain", () => {
+  const airline = domainFor("airline");
+  const observeAirline = (name: string, kwargs: Record<string, string>): SuggestionSource => {
+    const observation = airline.invokeTool(airline.freshData(), name, new PyDict(Object.entries(kwargs)))!;
+    return { kind: "tool", name, observation, error: observation.startsWith("Error") };
+  };
+  // the customer of airline test #1, and one of their reservations
+  const task = parseTasks(read("public/data/airline/tasks_test.json"))[1];
+  const user = observeAirline("get_user_details", { user_id: task.user_id });
+  const userDetails = JSON.parse((user as { observation: string }).observation) as {
+    reservations: string[];
+    payment_methods: Record<string, unknown>;
+  };
+  const reservation = observeAirline("get_reservation_details", { reservation_id: userDetails.reservations[0] });
+  const all = collectSuggestions([user, reservation]);
+
+  it("offers the user's reservations, payment methods and booked flights", () => {
+    expect(suggestionsFor(all, "reservation_id")).toEqual(expect.arrayContaining(userDetails.reservations));
+    expect(suggestionsFor(all, "payment_id")).toEqual(expect.arrayContaining(Object.keys(userDetails.payment_methods)));
+    const flights = (
+      JSON.parse((reservation as { observation: string }).observation) as { flights: { flight_number: string; date: string }[] }
+    ).flights;
+    expect(suggestionsFor(all, "flight_number")).toEqual(expect.arrayContaining(flights.map((f) => f.flight_number)));
+    expect(suggestionsFor(all, "date")).toEqual(expect.arrayContaining(flights.map((f) => f.date)));
+  });
+});
+
 describe("translations", () => {
   it("inserts values literally, even ones that look like replacement patterns", () => {
     const text = makeT("en")("replayObsDiffers", { name: "get_x", recorded: "costs $$5 and $' and $& and {name}" });
