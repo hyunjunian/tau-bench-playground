@@ -66,7 +66,7 @@ const ToolCard = memo(function ToolCard({ item }: { item: Extract<Item, { kind: 
             {t("observation")} <span className="muted">({formatBytes(item.observation.length)})</span>{" "}
             {!open && <code className="muted">{oneLine(item.observation, 120)}</code>}
           </summary>
-          {open && (obs.isJson ? <JsonBlock text={obs.text} /> : <pre>{obs.text}</pre>)}
+          {open && (obs.isJson ? <JsonBlock text={obs.text} focusable /> : <pre tabIndex={0}>{obs.text}</pre>)}
         </details>
       )}
     </div>

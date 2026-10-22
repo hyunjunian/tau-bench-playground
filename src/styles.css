@@ -399,7 +399,8 @@ textarea:focus,
 .btn:focus-visible,
 .chip:focus-visible,
 .segmented button:focus-visible,
-.tabs button:focus-visible {
+.tabs button:focus-visible,
+pre:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
@@ -1496,6 +1497,13 @@ input[type="number"] {
 }
 .json.compact {
   max-height: 300px;
+}
+/* Ground-truth and compared actions are short: wrap and grow rather than scroll (a scroll box needs keyboard focus). */
+.action-list .json {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: none;
+  overflow: visible;
 }
 pre {
   white-space: pre-wrap;

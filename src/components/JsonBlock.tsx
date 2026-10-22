@@ -2,8 +2,19 @@ import { memo, type ReactNode } from "react";
 
 const TOKEN = /("(?:[^"\\]|\\.)*")(\s*:)?|\b(true|false|null)\b|(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?|NaN|-?Infinity)/g;
 
-/** Pretty JSON with light syntax colouring (React nodes only, no HTML injection). */
-export const JsonBlock = memo(function JsonBlock({ text, className }: { text: string; className?: string }) {
+/**
+ * Pretty JSON with light syntax colouring (React nodes only, no HTML injection). `focusable` lets
+ * keyboard users scroll a block that can be long (a scroll box needs focus).
+ */
+export const JsonBlock = memo(function JsonBlock({
+  text,
+  className,
+  focusable,
+}: {
+  text: string;
+  className?: string;
+  focusable?: boolean;
+}) {
   const nodes: ReactNode[] = [];
   let last = 0;
   let i = 0;
@@ -33,5 +44,9 @@ export const JsonBlock = memo(function JsonBlock({ text, className }: { text: st
     last = start + m[0].length;
   }
   if (last < text.length) nodes.push(text.slice(last));
-  return <pre className={`json ${className ?? ""}`}>{nodes}</pre>;
+  return (
+    <pre className={`json ${className ?? ""}`} tabIndex={focusable ? 0 : undefined}>
+      {nodes}
+    </pre>
+  );
 });
