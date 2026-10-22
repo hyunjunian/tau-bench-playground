@@ -177,6 +177,7 @@ const en = {
   tabHistory: "History",
 
   instruction: "User instruction",
+  userPromptTitle: "Full prompt of the user simulator",
   instructionHidden:
     "Hidden from the agent: a human agent should solve the task from the conversation alone.",
   reveal: "Reveal",
@@ -427,6 +428,7 @@ const ko: Dict = {
   tabHistory: "기록",
 
   instruction: "유저 지시문",
+  userPromptTitle: "유저 시뮬레이터 프롬프트 전체",
   instructionHidden: "에이전트에게는 숨겨진 정보입니다. 사람이 에이전트를 맡으면 대화만으로 풀어야 합니다.",
   reveal: "보기",
   conceal: "숨기기",

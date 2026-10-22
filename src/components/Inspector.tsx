@@ -4,6 +4,7 @@ import type { HistoryEntry } from "../state/history";
 import { compareDatabases } from "../tau/diff";
 import type { Domain, Task } from "../tau/env";
 import type { Episode, EpisodeState } from "../tau/episode";
+import { userSystemPrompt } from "../tau/prompts";
 import { averageReward, isSuccess, passHatK } from "../tau/metrics";
 import { PyDict, type PyValue, jsonPretty, strictEqual } from "../tau/py";
 import type { EpisodeRecord } from "../tau/records";
@@ -84,7 +85,13 @@ function TaskTab({ task, agentIsHuman, done }: { task: Task; agentIsHuman: boole
           <p className="instruction">{task.instruction}</p>
         </Spoiler>
       ) : (
-        <p className="instruction">{task.instruction}</p>
+        <>
+          <p className="instruction">{task.instruction}</p>
+          <details className="user-prompt">
+            <summary>{t("userPromptTitle")}</summary>
+            <pre>{userSystemPrompt(task.instruction)}</pre>
+          </details>
+        </>
       )}
       <h3>{t("requiredOutputs")}</h3>
       {task.outputs.length === 0 ? (
