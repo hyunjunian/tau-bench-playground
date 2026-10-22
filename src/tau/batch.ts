@@ -1,6 +1,6 @@
 /**
- * Runs model-vs-model episodes over a range of tasks, one after another,
- * repeating the whole range for each trial like tau-bench's run.py
+ * Runs model-vs-model episodes over a set of tasks, one after another,
+ * repeating the whole set for each trial like tau-bench's run.py
  * (--num-trials). Each finished episode is kept as its JSON export so the
  * results can be downloaded or reopened without holding every database copy.
  */
@@ -43,7 +43,6 @@ export interface BatchState {
   pending: BatchRunRef[];
   current: BatchRunRef | null;
   results: BatchResult[];
-  startedAt: string;
 }
 
 /** Starts the episode for one run and calls `onFinish` when it ends. */
@@ -89,7 +88,6 @@ export class BatchRun {
       pending,
       current: null,
       results: [],
-      startedAt: new Date().toISOString(),
     };
   }
 
