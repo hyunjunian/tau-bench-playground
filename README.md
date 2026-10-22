@@ -100,6 +100,14 @@ npm test           # 원본 대비 검증 + 단위 테스트 (~30초)
 npm run build      # dist/ 정적 파일
 ```
 
+API 키 없이 화면을 시험해 보려면 스크립트로 답하는 가짜 엔드포인트를 띄우세요. 모델이 아니라, 에이전트는 정답 행동을 그대로 재생하고 유저는 첫 인사 뒤 답장을 받으면 대화를 끝냅니다.
+
+```bash
+node scripts/mock-llm.mjs   # http://localhost:8787/v1
+```
+
+두 역할의 제공자를 *Custom (OpenAI-compatible)*, base URL을 `http://localhost:8787/v1`, 모델을 `gt`로 두면 됩니다. `scripted-demo`(가끔 마지막 쓰기를 빼먹음), `flaky`(429), `badargs`(JSON이 아닌 툴 인자), `quota`(일일 한도) 같은 모델로 오류 처리도 볼 수 있습니다(파일 맨 위 설명 참고).
+
 로컬 모델(Ollama, LM Studio, vLLM 등)은 제공자를 *Custom (OpenAI-compatible)* 으로 두고 base URL을 넣으면 됩니다(예: `http://localhost:11434/v1`).
 배포된 페이지에서 로컬 서버를 부르려면 그 서버가 페이지 주소의 CORS 요청을 허용해야 합니다(Ollama는 `OLLAMA_ORIGINS`).
 
@@ -140,7 +148,7 @@ src/state/      설정, 기록, 에피소드 보관 (localStorage / IndexedDB)
 src/ui/         표시용 도우미 (툴 폼 자동완성 등)
 src/components/ UI (React)
 public/data/    tau-bench에서 뽑은 DB, 태스크, 툴 스키마, 정책
-scripts/        데이터 추출, 레퍼런스 생성 (Python)
+scripts/        데이터 추출, 레퍼런스 생성 (Python), API 키 없이 쓰는 가짜 엔드포인트 (mock-llm.mjs)
 tests/          원본 대비 검증(port-*.test.ts), 대화 루프·다시 보기·일괄 실행, 클라이언트, Python 동작 단위 테스트
 ```
 
@@ -169,4 +177,4 @@ Beyond single episodes, a **batch run** plays model vs model over a task range w
 
 The default model is **`gemini-3.5-flash-lite` on Google AI Studio's free tier**. It is the highest-scoring free model on OpenRouter's τ²-Bench airline leaderboard (76.9%, Oct 13 2026), with Gemma 4 31B (76.8%) as a near tie. Get a free key at <https://aistudio.google.com/apikey> and paste it into the app; keys stay in your browser. OpenRouter free models, Groq, Cerebras and any OpenAI-compatible endpoint are also supported.
 
-Run locally with `npm install && npm run dev`. Pushing to `main` deploys to GitHub Pages once Pages' source is set to *GitHub Actions*.
+Run locally with `npm install && npm run dev`; `node scripts/mock-llm.mjs` serves a scripted OpenAI-compatible endpoint (it replays the ground truth, it is not a model) for trying the UI without a key. Pushing to `main` deploys to GitHub Pages once Pages' source is set to *GitHub Actions*.
