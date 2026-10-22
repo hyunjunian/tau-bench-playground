@@ -151,7 +151,7 @@ describe("chatCompletion", () => {
     });
   });
 
-  it("gives Gemini a placeholder thought signature for tool calls a human made, and only those", async () => {
+  it("gives Gemini 3 a placeholder thought signature for tool calls that have none", async () => {
     const call = (id: string, extra?: unknown) => ({
       id,
       type: "function" as const,
@@ -164,27 +164,27 @@ describe("chatCompletion", () => {
       { role: "tool" as const, tool_call_id: "call_human_1", name: "think", content: "" },
       { role: "assistant" as const, content: null, tool_calls: [call("g1", { google: { thought_signature: "real" } })] },
       { role: "tool" as const, tool_call_id: "g1", name: "think", content: "" },
-      { role: "assistant" as const, content: null, tool_calls: [call("g2")] }, // the model's own call without a signature
+      { role: "assistant" as const, content: null, tool_calls: [call("g2")] }, // e.g. Gemma's, before the model was switched
     ];
-    const fetch = provider([ok({ content: "x" }), ok({ content: "x" }), ok({ content: "x" })]);
+    const fetch = provider([ok({ content: "x" }), ok({ content: "x" }), ok({ content: "x" }), ok({ content: "x" })]);
     const sentCalls = (i: number) =>
       (JSON.parse(String(fetch.mock.calls[i][1].body)).messages as { tool_calls?: { extra_content?: unknown }[] }[])
         .filter((m) => m.tool_calls)
         .map((m) => m.tool_calls![0].extra_content ?? null);
 
     await run(request("google", { model: "gemini-3.5-flash-lite", messages }));
-    expect(sentCalls(0)).toEqual([
-      { google: { thought_signature: "skip_thought_signature_validator" } },
-      { google: { thought_signature: "real" } },
-      null,
-    ]);
+    const skip = { google: { thought_signature: "skip_thought_signature_validator" } };
+    expect(sentCalls(0)).toEqual([skip, { google: { thought_signature: "real" } }, skip]);
     expect(messages[1].tool_calls?.[0]).not.toHaveProperty("extra_content"); // the history itself is untouched
 
-    // Gemma on the same endpoint, and other providers, get the messages as they are
+    // Models that do not check signatures, and other providers, get the messages as they are
+    const unchanged = [null, { google: { thought_signature: "real" } }, null];
     await run(request("google", { model: "gemma-4-31b-it", messages }));
-    expect(sentCalls(1)).toEqual([null, { google: { thought_signature: "real" } }, null]);
+    expect(sentCalls(1)).toEqual(unchanged);
+    await run(request("google", { model: "gemini-2.5-flash", messages }));
+    expect(sentCalls(2)).toEqual(unchanged);
     await run(request("openrouter", { model: "gemini-x", messages }));
-    expect(sentCalls(2)).toEqual([null, { google: { thought_signature: "real" } }, null]);
+    expect(sentCalls(3)).toEqual(unchanged);
   });
 
   it("keeps OpenRouter reasoning details and shows reasoning text", async () => {

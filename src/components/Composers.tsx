@@ -155,7 +155,12 @@ export function AgentComposer({
   const [prevPreferred, setPrevPreferred] = useState(preferredTool);
   if (preferredTool !== prevPreferred) {
     setPrevPreferred(preferredTool);
-    if (preferredTool) setTab("tool");
+    if (preferredTool) {
+      // A newer pick replaces a draft that has not been used yet.
+      setToolDraft(null);
+      setNote(null);
+      setTab("tool");
+    }
   }
   return (
     <div className="composer composer-agent">

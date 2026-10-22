@@ -263,7 +263,8 @@ const en = {
     "The transcript of this episode is not stored in this browser (only episodes finished since transcripts started being saved can be reopened).",
   openFile: "Open JSON…",
   openUrl: "Open URL…",
-  openUrlPrompt: "URL of a saved episode or results file (e.g. a raw.githubusercontent.com link). Adding ?file=<url> to this page's address opens it too.",
+  openUrlPrompt:
+    "URL of a saved episode or results file (e.g. a raw.githubusercontent.com link). Once it is open, the address bar links to it, so you can share the page's address.",
   openFileHint:
     "Replay a downloaded episode, a batch results file, or a results file from tau-bench's run.py (tool-calling, ReAct or Act agents).",
   openedFile: "Opened file",
@@ -545,7 +546,7 @@ const ko: Dict = {
     "이 에피소드의 대화 기록은 이 브라우저에 저장되어 있지 않습니다(대화 기록을 저장하기 시작한 뒤에 끝난 에피소드만 다시 열 수 있습니다).",
   openFile: "JSON 열기…",
   openUrl: "URL 열기…",
-  openUrlPrompt: "저장된 에피소드나 결과 파일의 URL (예: raw.githubusercontent.com 링크). 이 페이지 주소에 ?file=<url>을 붙여도 열립니다.",
+  openUrlPrompt: "저장된 에피소드나 결과 파일의 URL (예: raw.githubusercontent.com 링크). 열고 나면 주소창이 이 파일을 가리키므로 페이지 주소를 그대로 공유할 수 있습니다.",
   openFileHint:
     "내려받은 에피소드, 일괄 실행 결과, tau-bench run.py의 결과 파일(tool-calling, ReAct, Act 에이전트)을 열어 다시 볼 수 있습니다.",
   openedFile: "연 파일",

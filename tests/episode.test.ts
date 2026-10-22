@@ -153,6 +153,33 @@ describe("compareWrites", () => {
     expect(perfect.extra).toEqual([]);
     expect(compareWrites(task.actions, [], isWrite).checks[0]).toMatchObject({ matched: false, closest: null });
   });
+
+  it("explains a missed write only by a call that matches no other write", () => {
+    const task = tasksFor("retail", "test")[16]; // cancels #W5199551 and #W8665881, both "no longer needed"
+    const isWrite = (name: string) => name.startsWith("cancel_");
+    const cancel = (order: string, reason: string) => ({
+      name: "cancel_pending_order",
+      kwargs: parseToolArguments(JSON.stringify({ order_id: order, reason })),
+    });
+    const { checks, extra } = compareWrites(
+      task.actions,
+      [cancel("#W5199551", "no longer needed"), cancel("#W8665881", "ordered by mistake")],
+      isWrite,
+    );
+    expect(checks.map((c) => c.matched)).toEqual([true, false]);
+    expect(checks[1].closest?.diffs).toEqual([{ path: "reason", expected: "no longer needed", actual: "ordered by mistake" }]);
+    expect(extra).toHaveLength(1);
+  });
+
+  it("leaves out transfers to a human, which do not change the database", () => {
+    const task = tasksFor("airline", "test")[13];
+    expect(task.actions.some((a) => a.name === "transfer_to_human_agents")).toBe(true);
+    const transfer = { name: "transfer_to_human_agents", kwargs: parseToolArguments('{"summary": "worded differently"}') };
+    const reads = task.actions.filter((a) => a.name !== "transfer_to_human_agents");
+    const { checks, extra } = compareWrites(task.actions, [...reads, transfer], () => true);
+    expect(checks.some((c) => c.action.name === "transfer_to_human_agents")).toBe(false);
+    expect(extra).toEqual([]);
+  });
 });
 
 describe("metrics", () => {

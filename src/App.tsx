@@ -45,6 +45,14 @@ const THEMES: Record<Theme, { icon: string; label: TKey; next: Theme }> = {
   dark: { icon: "☾", label: "themeDark", next: "system" },
 };
 
+/** Set or clear ?file=<url> in the address bar, keeping the task hash. */
+function setFileParam(url: string | null) {
+  const u = new URL(location.href);
+  if (url) u.searchParams.set("file", url);
+  else u.searchParams.delete("file");
+  if (u.href !== location.href) window.history.replaceState(null, "", u);
+}
+
 export default function App() {
   const [settings, update] = useSettings();
   const t = useMemo(() => makeT(settings.lang), [settings.lang]);
@@ -100,6 +108,7 @@ export default function App() {
   }, [batchProgress, t]);
 
   // The address bar names the selected task (#retail/test/12), so a task can be shared or bookmarked.
+  // (A file opened from a URL adds ?file=<url>, see openUrl.)
   const hash = taskHash(settings);
   useEffect(() => {
     if (location.hash !== hash) window.history.replaceState(null, "", hash);
@@ -196,6 +205,7 @@ export default function App() {
     } = {},
   ): Episode => {
     const s = settingsRef.current;
+    setFileParam(null); // reloading should show this episode's task, not reopen the file
     const ep = new Episode({
       domain: spec.domain,
       task: spec.task,
@@ -387,18 +397,32 @@ export default function App() {
     publish(false);
   };
 
-  const openText = (text: string, name: string) => {
+  /** Show a saved file's episodes (a single one opens right away). False if it could not be read. */
+  const openText = (text: string, name: string): boolean => {
+    let records: EpisodeRecord[];
     try {
-      const records = parseRecordsFile(text, name);
-      setOpened({ name, records });
-      if (records.length === 1) void openRecord(records[0], name);
-      else setTab("history");
+      records = parseRecordsFile(text, name);
     } catch (e) {
       window.alert(t("openFailed", { error: e instanceof Error ? e.message : String(e) }));
+      return false;
     }
+    setOpened({ name, records });
+    if (records.length === 1) void openRecord(records[0], name);
+    else setTab("history");
+    return true;
   };
 
-  const openFile = async (file: File) => openText(await file.text(), file.name);
+  const openFile = async (file: File) => {
+    let text: string;
+    try {
+      text = await file.text();
+    } catch (e) {
+      window.alert(t("openFailed", { error: `${file.name}: ${e instanceof Error ? e.message : String(e)}` }));
+      return;
+    }
+    setFileParam(null);
+    openText(text, file.name);
+  };
 
   /** A saved file on the web (it must allow cross-origin reads, as raw.githubusercontent.com does). */
   const openUrl = async (url: string) => {
@@ -418,7 +442,7 @@ export default function App() {
     } catch {
       // a stray "%" in the name: show it as is
     }
-    openText(text, decoded);
+    if (openText(text, decoded)) setFileParam(url);
   };
 
   // ?file=<url> opens that file on load, so a results file can be shared as a link.
@@ -627,7 +651,10 @@ export default function App() {
               onOpenFile={(f) => void openFile(f)}
               onOpenUrl={(u) => void openUrl(u)}
               onOpenRecord={(r) => void openRecord(r, `${opened?.name ?? ""} · ${r.position + 1}`)}
-              onCloseFile={() => setOpened(null)}
+              onCloseFile={() => {
+                setOpened(null);
+                setFileParam(null);
+              }}
               onRecompute={() => void recomputeOpened()}
               onUseTool={(name) => setPreferredTool({ name })}
             />

@@ -183,18 +183,27 @@ function toolsForProvider(tools: ToolInfo[], provider: ProviderId): unknown[] {
 }
 
 /**
- * Gemini 3 rejects a function call in the current turn that carries no thought signature, which is the
- * case for the calls a human agent makes (the model is then asked for a draft). Those calls get the
- * placeholder Google documents for injected calls. Model-made calls, and other models, are sent as is.
+ * Gemini 3 rejects a function call in the current turn that carries no thought signature: one a human
+ * agent made (the model is then asked for a draft), or one another model made before the role was
+ * switched to Gemini. Those calls get the placeholder Google documents for injected calls. Calls with
+ * a signature, and requests for models that do not check them (Gemma, Gemini 2.x), are sent as is.
  */
 const SKIP_SIGNATURE = { google: { thought_signature: "skip_thought_signature_validator" } };
 
 /** Ids of tool calls made by a human in the playground (see Episode.callAgentTool). */
 export const HUMAN_CALL_PREFIX = "call_human_";
 
+/** Gemini 3 and later, including aliases such as gemini-flash-latest. */
+function checksSignatures(model: string): boolean {
+  const id = model.replace(/^models\//, "");
+  if (!id.startsWith("gemini")) return false;
+  const major = /^gemini-(\d+)/.exec(id);
+  return !major || Number(major[1]) >= 3;
+}
+
 function messagesForProvider(messages: ChatMessage[], provider: ProviderId, model: string): ChatMessage[] {
-  if (provider !== "google" || !model.startsWith("gemini")) return messages;
-  const needsPlaceholder = (c: ToolCall) => !c.extra_content && c.id.startsWith(HUMAN_CALL_PREFIX);
+  if (provider !== "google" || !checksSignatures(model)) return messages;
+  const needsPlaceholder = (c: ToolCall) => !c.extra_content;
   return messages.map((m) =>
     m.tool_calls?.some(needsPlaceholder)
       ? { ...m, tool_calls: m.tool_calls.map((c) => (needsPlaceholder(c) ? { ...c, extra_content: SKIP_SIGNATURE } : c)) }
