@@ -324,6 +324,9 @@ describe("replaying saved episodes", () => {
     const [parsed] = parseRecordsFile(JSON.stringify([{ task_id: 3, reward: 0.0, info: { error: "boom" }, traj: [], trial: 0 }]));
     await expect(resolveRecord(parsed, loaders)).rejects.toThrow("boom");
     expect(() => parseRecordsFile('{"hello": 1}')).toThrow("No episodes found");
+    expect(() => parseRecordsFile('{"info": {}, "tasks": [], "simulations": []}')).toThrow("τ²-bench");
+    // files saved by some editors start with a byte order mark
+    expect(parseRecordsFile('\uFEFF[{"task_id": 1, "reward": 0.0, "info": {}, "traj": [], "trial": 0}]')).toHaveLength(1);
   });
 
   it("reads model names from tau-bench result file names", () => {

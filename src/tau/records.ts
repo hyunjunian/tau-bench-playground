@@ -126,7 +126,10 @@ function readRecord(raw: PyValue, position: number, fileModels: Partial<Record<R
 
 /** Parse a saved file: a single episode object or a list of them. */
 export function parseRecordsFile(text: string, fileName = ""): EpisodeRecord[] {
-  const value = parseJson(text.replace(/^﻿/, ""));
+  const value = parseJson(text.replace(/^\uFEFF/, ""));
+  if (value instanceof PyDict && value.has("simulations")) {
+    throw new Error("This looks like a τ²-bench results file. Only τ-bench (v1) trajectories can be replayed here.");
+  }
   const list = Array.isArray(value) ? value : [value];
   const fileModels = modelsFromFileName(fileName);
   const records = list.map((v, i) => readRecord(v, i, fileModels)).filter((r): r is EpisodeRecord => r !== null);
