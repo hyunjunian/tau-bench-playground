@@ -179,6 +179,7 @@ export function EpisodeView({
         preferredTool={preferredTool}
         suggestions={suggestions}
         draftModel={episode.setup.modelFor("agent").model}
+        version={state.items.length}
         onDraft={(signal) => episode.draft("agent", signal)}
         onReply={(text) => episode.sendAgentReply(text)}
         onTool={(name, kwargs) => episode.callAgentTool(name, kwargs)}
@@ -190,6 +191,7 @@ export function EpisodeView({
         instruction={task.instruction}
         started={userStarted}
         draftModel={episode.setup.modelFor("user").model}
+        version={state.items.length}
         onDraft={(signal) => episode.draft("user", signal)}
         onSend={(text) => episode.sendUserMessage(text)}
       />

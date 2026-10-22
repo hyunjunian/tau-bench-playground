@@ -10,7 +10,15 @@
  *    conversation opens with "Hi! How can I help you today?", the episode
  *    ends when the user says ###STOP###)
  */
-import { type ChatMessage, LlmError, MissingKeyError, type Usage, chatCompletion, textContent } from "../llm/client";
+import {
+  type ChatMessage,
+  HUMAN_CALL_PREFIX,
+  LlmError,
+  MissingKeyError,
+  type Usage,
+  chatCompletion,
+  textContent,
+} from "../llm/client";
 import type { Endpoint, ModelConfig, ProviderId } from "../llm/providers";
 import {
   type Domain,
@@ -177,8 +185,12 @@ function reactAction(content: string): { thought: string; name: string; kwargs: 
   return { thought, name: "respond", kwargs: null, args: "", respond: actionText };
 }
 
+let episodeCount = 0;
+
 export class Episode {
   readonly env: TauEnv;
+  /** Distinct per episode, so views can be keyed to it. */
+  readonly id = ++episodeCount;
   readonly startedAt = new Date();
   finishedAt: Date | null = null;
   /** The agent's conversation in OpenAI format (tau-bench's `messages`). */
@@ -316,7 +328,7 @@ export class Episode {
       return null;
     }
     const args = jsonDumps(kwargs);
-    const callId = `call_human_${++this.humanCalls}`;
+    const callId = `${HUMAN_CALL_PREFIX}${++this.humanCalls}`;
     const message: ChatMessage = {
       role: "assistant",
       content: null,

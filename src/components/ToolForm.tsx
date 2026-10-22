@@ -170,8 +170,12 @@ export function ToolForm({
   const [jsonText, setJsonText] = useState(() => (startDraft ? prettyArgs(startDraft.args) : "{}"));
   const [error, setError] = useState<string | null>(null);
 
+  // Only a new pick from the Tools tab switches the tool; on mount the initial state already took it (or a draft) into account.
+  const appliedPreferred = useRef(preferred);
   useEffect(() => {
-    if (preferred) setName(preferred.name);
+    if (!preferred || preferred === appliedPreferred.current) return;
+    appliedPreferred.current = preferred;
+    setName(preferred.name);
   }, [preferred]);
 
   // A later draft shows its arguments as JSON; for another tool they wait for the switch, since a tool change resets the form.

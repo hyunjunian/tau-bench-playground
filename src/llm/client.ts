@@ -183,16 +183,21 @@ function toolsForProvider(tools: ToolInfo[], provider: ProviderId): unknown[] {
 }
 
 /**
- * Gemini 3 rejects a function call in the history that carries no thought signature, which is the case for
- * calls a human made (or another model, after a model switch). Google documents this placeholder for them.
+ * Gemini 3 rejects a function call in the current turn that carries no thought signature, which is the
+ * case for the calls a human agent makes (the model is then asked for a draft). Those calls get the
+ * placeholder Google documents for injected calls. Model-made calls, and other models, are sent as is.
  */
 const SKIP_SIGNATURE = { google: { thought_signature: "skip_thought_signature_validator" } };
 
-function messagesForProvider(messages: ChatMessage[], provider: ProviderId): ChatMessage[] {
-  if (provider !== "google") return messages;
+/** Ids of tool calls made by a human in the playground (see Episode.callAgentTool). */
+export const HUMAN_CALL_PREFIX = "call_human_";
+
+function messagesForProvider(messages: ChatMessage[], provider: ProviderId, model: string): ChatMessage[] {
+  if (provider !== "google" || !model.startsWith("gemini")) return messages;
+  const needsPlaceholder = (c: ToolCall) => !c.extra_content && c.id.startsWith(HUMAN_CALL_PREFIX);
   return messages.map((m) =>
-    m.tool_calls?.some((c) => !c.extra_content)
-      ? { ...m, tool_calls: m.tool_calls.map((c) => (c.extra_content ? c : { ...c, extra_content: SKIP_SIGNATURE })) }
+    m.tool_calls?.some(needsPlaceholder)
+      ? { ...m, tool_calls: m.tool_calls.map((c) => (needsPlaceholder(c) ? { ...c, extra_content: SKIP_SIGNATURE } : c)) }
       : m,
   );
 }
@@ -200,7 +205,7 @@ function messagesForProvider(messages: ChatMessage[], provider: ProviderId): Cha
 export async function chatCompletion(req: CompletionRequest): Promise<CompletionResult> {
   const { endpoint } = req;
   const url = `${endpoint.baseUrl.replace(/\/+$/, "")}/chat/completions`;
-  const body: Record<string, unknown> = { model: req.model, messages: messagesForProvider(req.messages, endpoint.provider) };
+  const body: Record<string, unknown> = { model: req.model, messages: messagesForProvider(req.messages, endpoint.provider, req.model) };
   if (req.tools && req.tools.length > 0) body.tools = toolsForProvider(req.tools, endpoint.provider);
   if (req.temperature !== null && req.temperature !== undefined) body.temperature = req.temperature;
   if (req.reasoningEffort) body.reasoning_effort = req.reasoningEffort;

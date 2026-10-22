@@ -151,24 +151,40 @@ describe("chatCompletion", () => {
     });
   });
 
-  it("gives Gemini a placeholder thought signature for tool calls it did not make", async () => {
-    const human = { id: "h1", type: "function" as const, function: { name: "think", arguments: "{}" } };
-    const gemini = { ...human, id: "g1", extra_content: { google: { thought_signature: "real" } } };
+  it("gives Gemini a placeholder thought signature for tool calls a human made, and only those", async () => {
+    const call = (id: string, extra?: unknown) => ({
+      id,
+      type: "function" as const,
+      function: { name: "think", arguments: "{}" },
+      ...(extra ? { extra_content: extra } : {}),
+    });
     const messages = [
       { role: "user" as const, content: "hi" },
-      { role: "assistant" as const, content: null, tool_calls: [human] },
-      { role: "tool" as const, tool_call_id: "h1", name: "think", content: "" },
-      { role: "assistant" as const, content: null, tool_calls: [gemini] },
+      { role: "assistant" as const, content: null, tool_calls: [call("call_human_1")] },
+      { role: "tool" as const, tool_call_id: "call_human_1", name: "think", content: "" },
+      { role: "assistant" as const, content: null, tool_calls: [call("g1", { google: { thought_signature: "real" } })] },
+      { role: "tool" as const, tool_call_id: "g1", name: "think", content: "" },
+      { role: "assistant" as const, content: null, tool_calls: [call("g2")] }, // the model's own call without a signature
     ];
-    const fetch = provider([ok({ content: "x" }), ok({ content: "x" })]);
-    await run(request("google", { messages }));
-    const sent = JSON.parse(String(fetch.mock.calls[0][1].body)).messages;
-    expect(sent[1].tool_calls[0].extra_content).toEqual({ google: { thought_signature: "skip_thought_signature_validator" } });
-    expect(sent[3].tool_calls[0].extra_content).toEqual({ google: { thought_signature: "real" } });
+    const fetch = provider([ok({ content: "x" }), ok({ content: "x" }), ok({ content: "x" })]);
+    const sentCalls = (i: number) =>
+      (JSON.parse(String(fetch.mock.calls[i][1].body)).messages as { tool_calls?: { extra_content?: unknown }[] }[])
+        .filter((m) => m.tool_calls)
+        .map((m) => m.tool_calls![0].extra_content ?? null);
+
+    await run(request("google", { model: "gemini-3.5-flash-lite", messages }));
+    expect(sentCalls(0)).toEqual([
+      { google: { thought_signature: "skip_thought_signature_validator" } },
+      { google: { thought_signature: "real" } },
+      null,
+    ]);
     expect(messages[1].tool_calls?.[0]).not.toHaveProperty("extra_content"); // the history itself is untouched
 
-    await run(request("openrouter", { messages }));
-    expect(JSON.parse(String(fetch.mock.calls[1][1].body)).messages[1].tool_calls[0]).not.toHaveProperty("extra_content");
+    // Gemma on the same endpoint, and other providers, get the messages as they are
+    await run(request("google", { model: "gemma-4-31b-it", messages }));
+    expect(sentCalls(1)).toEqual([null, { google: { thought_signature: "real" } }, null]);
+    await run(request("openrouter", { model: "gemini-x", messages }));
+    expect(sentCalls(2)).toEqual([null, { google: { thought_signature: "real" } }, null]);
   });
 
   it("keeps OpenRouter reasoning details and shows reasoning text", async () => {

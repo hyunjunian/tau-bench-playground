@@ -12,10 +12,13 @@ import { type PreferredTool, type ToolDraft, ToolForm } from "./ToolForm";
 /** Asks the human's own role model for a draft; cancelling aborts the request. */
 function DraftButton({
   model,
+  version,
   onDraft,
   onResult,
 }: {
   model: string;
+  /** Changes whenever the conversation does: a draft still on its way would no longer fit, so it is dropped. */
+  version: number;
   onDraft: (signal: AbortSignal) => Promise<Draft>;
   onResult: (draft: Draft) => void;
 }) {
@@ -23,7 +26,7 @@ function DraftButton({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ message: string; missingKey?: ProviderId } | null>(null);
   const controller = useRef<AbortController | null>(null);
-  useEffect(() => () => controller.current?.abort(), []);
+  useEffect(() => () => controller.current?.abort(), [version]);
   const ask = async () => {
     const c = new AbortController();
     controller.current = c;
@@ -118,6 +121,7 @@ export function AgentComposer({
   preferredTool,
   suggestions,
   draftModel,
+  version,
   onDraft,
   onReply,
   onTool,
@@ -126,6 +130,8 @@ export function AgentComposer({
   preferredTool: PreferredTool | null;
   suggestions: Suggestions;
   draftModel: string;
+  /** Conversation length, see DraftButton. */
+  version: number;
   onDraft: (signal: AbortSignal) => Promise<Draft>;
   onReply: (text: string) => void;
   onTool: (name: string, kwargs: PyDict) => void;
@@ -163,7 +169,7 @@ export function AgentComposer({
             {t("toolTab")}
           </button>
         </div>
-        <DraftButton model={draftModel} onDraft={onDraft} onResult={useDraft} />
+        <DraftButton model={draftModel} version={version} onDraft={onDraft} onResult={useDraft} />
       </div>
       {note && (
         <p className="draft-note">
@@ -200,12 +206,15 @@ export function UserComposer({
   instruction,
   started,
   draftModel,
+  version,
   onDraft,
   onSend,
 }: {
   instruction: string;
   started: boolean;
   draftModel: string;
+  /** Conversation length, see DraftButton. */
+  version: number;
   onDraft: (signal: AbortSignal) => Promise<Draft>;
   onSend: (text: string) => void;
 }) {
@@ -215,7 +224,7 @@ export function UserComposer({
     <div className="composer composer-user">
       <div className="row space composer-head">
         <div className="composer-title">{t("waitingHumanUser")}</div>
-        <DraftButton model={draftModel} onDraft={onDraft} onResult={(d) => setDraft({ text: d.text })} />
+        <DraftButton model={draftModel} version={version} onDraft={onDraft} onResult={(d) => setDraft({ text: d.text })} />
       </div>
       <details className="instruction-card" open>
         <summary>{t("userInstructionTitle")}</summary>

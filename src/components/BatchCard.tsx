@@ -36,12 +36,14 @@ export function BatchCard({
   const avg = averageReward(outcomes);
   const passK = passHatK(outcomes);
   const tokens = results.reduce((s, r) => s + r.tokens, 0);
-  const timed = results.filter((r) => r.ms > 0);
+  // The median, so an episode left stopped or waiting on an error for a while does not inflate the estimate.
+  const times = results
+    .map((r) => r.ms)
+    .filter((ms) => ms > 0)
+    .sort((a, b) => a - b);
   const left = total - results.length;
   const etaMin =
-    status === "running" && timed.length > 0 && left > 0
-      ? Math.ceil((left * timed.reduce((s, r) => s + r.ms, 0)) / timed.length / 60_000)
-      : null;
+    status === "running" && times.length > 0 && left > 0 ? Math.ceil((left * times[times.length >> 1]) / 60_000) : null;
   const byRun = new Map(results.map((r) => [`${r.index}/${r.trial}`, r]));
   const isCurrent = (run: BatchRunRef) => current?.index === run.index && current.trial === run.trial;
   const first = plan.indices[0];
@@ -117,7 +119,14 @@ export function BatchCard({
           )}
         </div>
       </div>
-      <div className="progress" role="progressbar" aria-label={t("batchTitle")} aria-valuemin={0} aria-valuemax={total} aria-valuenow={results.length}>
+      <div
+        className="progress"
+        role="progressbar"
+        aria-label={t("batchTitle")}
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={results.length}
+      >
         <div style={{ width: `${total ? (100 * results.length) / total : 0}%` }} />
       </div>
       <div className="batch-grid" title={t("batchOpenHint")}>

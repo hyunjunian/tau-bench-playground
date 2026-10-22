@@ -545,6 +545,7 @@ export default function App() {
             )}
             {episode && state ? (
               <EpisodeView
+                key={episode.id}
                 episode={episode}
                 state={state}
                 preferredTool={preferredTool}
