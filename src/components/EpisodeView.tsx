@@ -184,6 +184,11 @@ export function EpisodeView({
         <span className="pill">
           {taskRef.domain} · {taskRef.split} · #{taskRef.index}
         </span>
+        {episode.setup.replayOf && (
+          <span className="badge badge-accent replay-badge" title={t("replayNote")}>
+            {t("replayBadge")} · {episode.setup.replayOf}
+          </span>
+        )}
         <span className="muted">{t("agentActions", { n: `${state.agentSteps}${episode.setup.maxAgentSteps ? `/${episode.setup.maxAgentSteps}` : ""}` })}</span>
         {totalTokens > 0 && <span className="muted">{t("tokens", { n: totalTokens.toLocaleString() })}</span>}
         <span className="spacer" />

@@ -1,15 +1,23 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { HistoryEntry } from "../state/history";
 import { compareDatabases } from "../tau/diff";
 import type { Domain, Task } from "../tau/env";
 import type { Episode, EpisodeState } from "../tau/episode";
+import { averageReward, isSuccess } from "../tau/metrics";
 import { PyDict, type PyValue, jsonPretty, strictEqual } from "../tau/py";
+import type { EpisodeRecord } from "../tau/records";
 import { isReadTool, valueText } from "../ui/format";
 import { JsonBlock } from "./JsonBlock";
 import { Markdown } from "./Markdown";
 
 export type InspectorTab = "task" | "policy" | "tools" | "result" | "data" | "history";
+
+/** A saved-episodes file the user opened (shown in the History tab). */
+export interface OpenedFile {
+  name: string;
+  records: EpisodeRecord[];
+}
 
 function Spoiler({ hint, children, initiallyOpen }: { hint: string; children: React.ReactNode; initiallyOpen: boolean }) {
   const t = useT();
@@ -302,42 +310,203 @@ function DataTab({ domain, episode }: { domain: Domain; episode: Episode | null 
   );
 }
 
-function HistoryTab({ entries, onClear }: { entries: HistoryEntry[]; onClear: () => void }) {
+function formatWhen(iso: string): string {
+  const d = new Date(iso);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay
+    ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+function OpenFileButton({ onOpen }: { onOpen: (file: File) => void }) {
   const t = useT();
-  if (entries.length === 0) return <div className="tab-body muted">{t("historyEmpty")}</div>;
-  const avg = entries.reduce((s, e) => s + e.reward, 0) / entries.length;
+  const input = useRef<HTMLInputElement>(null);
   return (
-    <div className="tab-body">
+    <>
+      <button type="button" className="btn btn-small" onClick={() => input.current?.click()}>
+        {t("openFile")}
+      </button>
+      <input
+        ref={input}
+        type="file"
+        accept=".json,application/json"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) onOpen(file);
+        }}
+      />
+    </>
+  );
+}
+
+function OpenedFileList({
+  file,
+  onOpen,
+  onClose,
+}: {
+  file: OpenedFile;
+  onOpen: (r: EpisodeRecord) => void;
+  onClose: () => void;
+}) {
+  const t = useT();
+  const avg = averageReward(file.records.filter((r) => r.reward !== null).map((r) => ({ task: String(r.taskId), reward: r.reward! })));
+  return (
+    <section className="opened-file">
       <div className="row space">
-        <span>{t("historyAverage", { avg: avg.toFixed(3), n: entries.length })}</span>
-        <button type="button" className="btn btn-small btn-ghost" onClick={onClear}>
-          {t("historyClear")}
+        <h3>
+          {t("openedFile")}: <code>{file.name}</code>
+        </h3>
+        <button type="button" className="btn btn-small btn-ghost" onClick={onClose}>
+          {t("batchClose")}
         </button>
       </div>
+      <p className="muted small">
+        {t("openedCount", { n: file.records.length })}
+        {avg !== null && ` · ${t("batchAvg", { avg: avg.toFixed(3) })}`}
+      </p>
       <table className="history">
         <thead>
           <tr>
-            <th>{t("colWhen")}</th>
+            <th>#</th>
             <th>{t("colTask")}</th>
-            <th>{t("colAgent")}</th>
-            <th>{t("colUser")}</th>
+            <th>{t("colTrial")}</th>
             <th>{t("colReward")}</th>
           </tr>
         </thead>
         <tbody>
-          {entries.map((e) => (
-            <tr key={e.id} title={e.reason}>
-              <td>{new Date(e.at).toLocaleString()}</td>
+          {file.records.map((r) => (
+            <tr key={r.position}>
+              <td>{r.position + 1}</td>
               <td>
-                {e.domain}/{e.split}#{e.index}
+                <button type="button" className="link-btn" title={t("historyOpen")} onClick={() => onOpen(r)}>
+                  {r.domain ?? "?"}
+                  {r.split ? `/${r.split}` : ""}#{r.taskId ?? "?"}
+                </button>
               </td>
-              <td>{e.agent}</td>
-              <td>{e.user}</td>
-              <td className={e.reward === 1 ? "check-ok" : "check-bad"}>{e.reward.toFixed(1)}</td>
+              <td>{r.trial !== null ? r.trial + 1 : ""}</td>
+              <td className={r.reward === null ? "" : isSuccess(r.reward) ? "check-ok" : "check-bad"}>{r.reward?.toFixed(1) ?? "–"}</td>
             </tr>
           ))}
         </tbody>
       </table>
+    </section>
+  );
+}
+
+function ModelSummary({ entries }: { entries: HistoryEntry[] }) {
+  const t = useT();
+  const groups = new Map<string, HistoryEntry[]>();
+  for (const e of entries) {
+    const key = `${e.agent}\u0000${e.user}`;
+    groups.set(key, [...(groups.get(key) ?? []), e]);
+  }
+  if (groups.size < 2) return null;
+  return (
+    <>
+      <h3>{t("historySummary")}</h3>
+      <table className="history">
+        <thead>
+          <tr>
+            <th>{t("colAgent")}</th>
+            <th>{t("colUser")}</th>
+            <th>{t("colEpisodes")}</th>
+            <th>{t("colTasks")}</th>
+            <th>{t("colAvg")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from(groups.values(), (g) => {
+            const avg = averageReward(g.map((e) => ({ task: "", reward: e.reward }))) ?? 0;
+            const tasks = new Set(g.map((e) => `${e.domain}/${e.split}/${e.index}`)).size;
+            return (
+              <tr key={`${g[0].agent}/${g[0].user}`}>
+                <td>{g[0].agent}</td>
+                <td>{g[0].user}</td>
+                <td>{g.length}</td>
+                <td>{tasks}</td>
+                <td>{avg.toFixed(3)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+function HistoryTab({
+  entries,
+  onClear,
+  onOpenEntry,
+  opened,
+  onOpenFile,
+  onOpenRecord,
+  onCloseFile,
+}: {
+  entries: HistoryEntry[];
+  onClear: () => void;
+  onOpenEntry: (e: HistoryEntry) => void;
+  opened: OpenedFile | null;
+  onOpenFile: (file: File) => void;
+  onOpenRecord: (r: EpisodeRecord) => void;
+  onCloseFile: () => void;
+}) {
+  const t = useT();
+  const avg = averageReward(entries.map((e) => ({ task: "", reward: e.reward })));
+  return (
+    <div className="tab-body">
+      <div className="row space">
+        <span className="muted small">{t("openFileHint")}</span>
+        <OpenFileButton onOpen={onOpenFile} />
+      </div>
+      {opened && <OpenedFileList file={opened} onOpen={onOpenRecord} onClose={onCloseFile} />}
+      <h3>{t("historyLocal")}</h3>
+      {entries.length === 0 ? (
+        <p className="muted">{t("historyEmpty")}</p>
+      ) : (
+        <>
+          <div className="row space">
+            <span>{t("historyAverage", { avg: (avg ?? 0).toFixed(3), n: entries.length })}</span>
+            <button type="button" className="btn btn-small btn-ghost" onClick={onClear}>
+              {t("historyClear")}
+            </button>
+          </div>
+          <ModelSummary entries={entries} />
+          <table className="history">
+            <thead>
+              <tr>
+                <th>{t("colWhen")}</th>
+                <th>{t("colTask")}</th>
+                <th>{t("colAgent")}</th>
+                <th>{t("colUser")}</th>
+                <th>{t("colReward")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e) => (
+                <tr key={e.id} title={e.reason}>
+                  <td>{formatWhen(e.at)}</td>
+                  <td>
+                    <button type="button" className="link-btn" title={t("historyOpen")} onClick={() => onOpenEntry(e)}>
+                      {e.domain}/{e.split}#{e.index}
+                    </button>
+                    {e.trial !== undefined && <span className="muted"> · {e.trial + 1}</span>}
+                  </td>
+                  <td className="clip" title={e.agent}>
+                    {e.agent}
+                  </td>
+                  <td className="clip" title={e.user}>
+                    {e.user}
+                  </td>
+                  <td className={e.reward === 1 ? "check-ok" : "check-bad"}>{e.reward.toFixed(1)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </div>
   );
 }
@@ -353,6 +522,11 @@ export function Inspector({
   taskDone,
   history,
   onClearHistory,
+  onOpenHistory,
+  opened,
+  onOpenFile,
+  onOpenRecord,
+  onCloseFile,
   onUseTool,
 }: {
   tab: InspectorTab;
@@ -367,6 +541,11 @@ export function Inspector({
   taskDone: boolean;
   history: HistoryEntry[];
   onClearHistory: () => void;
+  onOpenHistory: (e: HistoryEntry) => void;
+  opened: OpenedFile | null;
+  onOpenFile: (file: File) => void;
+  onOpenRecord: (r: EpisodeRecord) => void;
+  onCloseFile: () => void;
   onUseTool: (name: string) => void;
 }) {
   const t = useT();
@@ -389,7 +568,17 @@ export function Inspector({
           </button>
         ))}
       </div>
-      {!domain || !task ? (
+      {tab === "history" ? (
+        <HistoryTab
+          entries={history}
+          onClear={onClearHistory}
+          onOpenEntry={onOpenHistory}
+          opened={opened}
+          onOpenFile={onOpenFile}
+          onOpenRecord={onOpenRecord}
+          onCloseFile={onCloseFile}
+        />
+      ) : !domain || !task ? (
         <div className="tab-body muted">{t("loading")}</div>
       ) : tab === "task" ? (
         <TaskTab task={task} agentIsHuman={agentIsHuman} done={taskDone} />
@@ -402,10 +591,8 @@ export function Inspector({
         <ToolsTab domain={domain} onUse={onUseTool} canUse={canUseTool} />
       ) : tab === "result" ? (
         <ResultTab episode={episode} state={state} />
-      ) : tab === "data" ? (
-        <DataTab domain={domain} episode={episode} />
       ) : (
-        <HistoryTab entries={history} onClear={onClearHistory} />
+        <DataTab domain={domain} episode={episode} />
       )}
     </div>
   );

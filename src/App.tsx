@@ -1,14 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { BatchCard } from "./components/BatchCard";
 import { EpisodeView } from "./components/EpisodeView";
-import { Inspector, type InspectorTab } from "./components/Inspector";
+import { Inspector, type InspectorTab, type OpenedFile } from "./components/Inspector";
 import { SetupPanel } from "./components/SetupPanel";
 import { loadDomain, loadTasks } from "./data/loader";
 import { LangContext, makeT } from "./i18n";
 import { type Endpoint, type ModelConfig, PROVIDERS, type ProviderId } from "./llm/providers";
-import { useHistory } from "./state/history";
+import { archiveEpisode, loadArchivedEpisode } from "./state/archive";
+import { type HistoryEntry, useHistory } from "./state/history";
 import { useSettings } from "./state/settings";
+import { BatchRun, type BatchResult, type BatchState } from "./tau/batch";
 import type { Domain, Task } from "./tau/env";
-import { Episode, type EpisodeState, type Role } from "./tau/episode";
+import { type Controller, Episode, type EpisodeState, type Role } from "./tau/episode";
+import { type EpisodeRecord, parseRecordsFile, resolveRecord } from "./tau/records";
 import { downloadJson } from "./ui/format";
 
 const noopSubscribe = () => () => {};
@@ -17,6 +21,20 @@ const nullState = () => null;
 function useEpisodeState(episode: Episode | null): EpisodeState | null {
   return useSyncExternalStore(episode ? episode.subscribe : noopSubscribe, episode ? episode.getState : nullState);
 }
+
+function useBatchState(batch: BatchRun | null): BatchState | null {
+  return useSyncExternalStore(batch ? batch.subscribe : noopSubscribe, batch ? batch.getState : nullState);
+}
+
+/** What to run: a task and where it lives in the dataset. */
+interface RunSpec {
+  domain: Domain;
+  task: Task;
+  split: string;
+  index: number;
+}
+
+const loaders = { loadDomain, loadTasks };
 
 export default function App() {
   const [settings, update] = useSettings();
@@ -30,12 +48,17 @@ export default function App() {
 
   const [episode, setEpisode] = useState<Episode | null>(null);
   const state = useEpisodeState(episode);
+  const [batch, setBatch] = useState<BatchRun | null>(null);
+  const batchState = useBatchState(batch);
+  const [opened, setOpened] = useState<OpenedFile | null>(null);
   const [tab, setTab] = useState<InspectorTab>("task");
   const [preferredTool, setPreferredTool] = useState<string | null>(null);
 
   // Episodes read keys and model settings at call time, so fixes apply on retry.
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const tRef = useRef(t);
+  tRef.current = t;
 
   useEffect(() => {
     document.documentElement.lang = settings.lang;
@@ -58,20 +81,17 @@ export default function App() {
     };
   }, [settings.domain, settings.split]);
 
-  const endpointFor = useCallback(
-    (provider: ProviderId): Endpoint => {
-      const s = settingsRef.current;
-      const baseUrl = provider === "custom" ? s.customBaseUrl : PROVIDERS[provider].baseUrl;
-      return { provider, baseUrl, apiKey: s.keys[provider] ?? "" };
-    },
-    [],
-  );
+  const endpointFor = useCallback((provider: ProviderId): Endpoint => {
+    const s = settingsRef.current;
+    const baseUrl = provider === "custom" ? s.customBaseUrl : PROVIDERS[provider].baseUrl;
+    return { provider, baseUrl, apiKey: s.keys[provider] ?? "" };
+  }, []);
 
   const resolveEndpoint = useCallback(
     (cfg: ModelConfig): Endpoint => {
       const endpoint = endpointFor(cfg.provider);
       if (!endpoint.apiKey && cfg.provider !== "custom") {
-        throw new Error(makeT(settingsRef.current.lang)("keyMissing", { provider: PROVIDERS[cfg.provider].label }));
+        throw new Error(tRef.current("keyMissing", { provider: PROVIDERS[cfg.provider].label }));
       }
       if (!cfg.model) throw new Error("No model selected.");
       return endpoint;
@@ -79,60 +99,208 @@ export default function App() {
     [endpointFor],
   );
 
+  const taskCount = tasks && domain?.name === settings.domain ? tasks.length : null;
   const task = tasks && domain?.name === settings.domain ? (tasks[Math.min(settings.taskIndex, tasks.length - 1)] ?? null) : null;
 
   const describeRole = (ep: Episode, role: Role) =>
     ep.controllerOf(role) === "human" ? "human" : ep.modelsUsed(role).join(", ") || settingsRef.current[role].model.model;
 
-  const startEpisode = (taskIndex = settings.taskIndex) => {
-    if (!domain || !tasks) return;
-    const current = episode?.getState();
-    if (current && !current.done && current.items.length > 1 && !window.confirm(t("confirmNew"))) return;
-    episode?.abort();
-    const index = Math.max(0, Math.min(taskIndex, tasks.length - 1));
+  const record = (finished: Episode, trial?: number) => {
+    const s = finished.getState();
+    if (!s.done || s.items.length <= 1) return;
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const ref = finished.setup.taskRef;
+    const entry: HistoryEntry = {
+      id,
+      at: new Date().toISOString(),
+      domain: ref.domain,
+      split: ref.split,
+      index: ref.index,
+      agent: describeRole(finished, "agent"),
+      user: describeRole(finished, "user"),
+      reward: s.done.reward,
+      reason: s.done.reason,
+      steps: s.agentSteps,
+      trial,
+    };
+    history.add(entry);
+    archiveEpisode(id, JSON.stringify(trial === undefined ? finished.toJSON() : { ...finished.toJSON(), trial })).catch(() => {});
+  };
+
+  /** Create and start an episode; `controllers` defaults to the current settings. */
+  const launch = (
+    spec: RunSpec,
+    opts: { controllers?: Record<Role, Controller>; trial?: number; keepTab?: boolean; onFinish?: (ep: Episode) => void } = {},
+  ): Episode => {
+    const s = settingsRef.current;
     const ep = new Episode({
-      domain,
-      task: tasks[index],
-      taskRef: { domain: domain.name, split: settings.split, index },
-      controllers: { agent: settings.agent.controller, user: settings.user.controller },
+      domain: spec.domain,
+      task: spec.task,
+      taskRef: { domain: spec.domain.name, split: spec.split, index: spec.index },
+      controllers: opts.controllers ?? { agent: s.agent.controller, user: s.user.controller },
       modelFor: (role) => settingsRef.current[role].model,
-      maxAgentSteps: settings.maxAgentSteps,
-      startPaused: settings.stepMode,
+      maxAgentSteps: s.maxAgentSteps,
+      startPaused: s.stepMode,
       resolveEndpoint,
       onFinish: (finished) => {
-        const done = finished.getState().done;
-        if (!done || finished.getState().items.length <= 1) return;
-        history.add({
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          at: new Date().toISOString(),
-          domain: finished.setup.taskRef.domain,
-          split: finished.setup.taskRef.split,
-          index: finished.setup.taskRef.index,
-          agent: describeRole(finished, "agent"),
-          user: describeRole(finished, "user"),
-          reward: done.reward,
-          reason: done.reason,
-          steps: finished.getState().agentSteps,
-        });
+        record(finished, opts.trial);
+        opts.onFinish?.(finished);
       },
     });
     setPreferredTool(null);
     setEpisode(ep);
-    setTab("task");
+    if (!opts.keepTab) setTab("task");
     ep.start();
+    return ep;
   };
 
-  const nextTask = () => {
-    if (!tasks) return;
-    const next = (settings.taskIndex + 1) % tasks.length;
-    update({ taskIndex: next });
-    startEpisode(next);
+  /** Ask before throwing away an episode in progress or a running batch; the batch lets go of its episode. */
+  const confirmReplace = (): boolean => {
+    if (batchState?.status === "running") {
+      if (!window.confirm(t("confirmStopBatch"))) return false;
+    } else {
+      const current = episode?.getState();
+      if (current && !current.done && current.items.length > 1 && !window.confirm(t("confirmNew"))) return false;
+    }
+    batch?.detach();
+    return true;
+  };
+
+  const replaceWith = (spec: RunSpec) => {
+    if (!confirmReplace()) return;
+    episode?.abort();
+    launch(spec);
+  };
+
+  const startFromSettings = () => {
+    if (!domain || !tasks || !task) return;
+    const index = Math.max(0, Math.min(settings.taskIndex, tasks.length - 1));
+    replaceWith({ domain, task: tasks[index], split: settings.split, index });
+  };
+
+  /** Run the finished episode's own task again (not whatever the setup panel shows now). */
+  const runAgain = (ep: Episode) => {
+    const ref = ep.setup.taskRef;
+    replaceWith({ domain: ep.setup.domain, task: ep.setup.task, split: ref.split, index: ref.index });
+  };
+
+  /** The task after the episode's task, in the episode's domain and split. */
+  const runNext = async (ep: Episode) => {
+    const ref = ep.setup.taskRef;
+    let list: Task[];
+    try {
+      list = await loadTasks(ref.domain, ref.split);
+    } catch {
+      return;
+    }
+    const index = list.length ? (ref.index + 1) % list.length : 0;
+    if (!list[index]) return;
+    update({ domain: ref.domain, split: ref.split, taskIndex: index });
+    replaceWith({ domain: ep.setup.domain, task: list[index], split: ref.split, index });
+  };
+
+  const startBatch = () => {
+    if (!domain || !tasks || tasks.length === 0) return;
+    if (!confirmReplace()) return;
+    episode?.abort();
+    const b = settings.batch;
+    const from = Math.min(b.from, tasks.length - 1);
+    const to = Math.min(Math.max(b.to, from), tasks.length - 1);
+    const indices = Array.from({ length: to - from + 1 }, (_, i) => from + i);
+    const batchDomain = domain;
+    const batchTasks = tasks;
+    const split = settings.split;
+    const run = new BatchRun({ domain: batchDomain.name, split, indices, trials: b.trials }, ({ index, trial }, onFinish) =>
+      launch(
+        { domain: batchDomain, task: batchTasks[index], split, index },
+        { controllers: { agent: "model", user: "model" }, trial, keepTab: true, onFinish },
+      ),
+    );
+    setBatch(run);
+    run.start();
+  };
+
+  const closeBatch = () => {
+    batch?.detach();
+    setBatch(null);
+  };
+
+  const downloadBatch = () => {
+    if (!batch) return;
+    const { plan } = batch.getState();
+    downloadJson(`tau-bench-${plan.domain}-${plan.split}-batch-${Date.now()}.json`, batch.exportResults());
   };
 
   const download = () => {
     if (!episode) return;
     const { domain: d, split, index } = episode.setup.taskRef;
     downloadJson(`tau-bench-${d}-${split}-${index}-${Date.now()}.json`, episode.toJSON());
+  };
+
+  /** Rebuild a saved episode and show it (read-only, already scored). */
+  const openRecord = async (rec: EpisodeRecord, label: string) => {
+    if (!confirmReplace()) return false;
+    try {
+      const resolved = await resolveRecord(rec, loaders);
+      const ep = Episode.replay(
+        {
+          domain: resolved.domain,
+          task: resolved.task,
+          taskRef: resolved.taskRef,
+          controllers: { agent: rec.controllers.agent ?? "model", user: rec.controllers.user ?? "model" },
+          modelFor: (role) => settingsRef.current[role].model,
+          maxAgentSteps: resolved.maxAgentSteps,
+          resolveEndpoint,
+          replayOf: label,
+        },
+        resolved.source,
+      );
+      episode?.abort();
+      const ref = resolved.taskRef;
+      if (ref.split !== "file") update({ domain: ref.domain, split: ref.split, taskIndex: ref.index });
+      setPreferredTool(null);
+      setEpisode(ep);
+      setTab("result");
+      return true;
+    } catch (e) {
+      window.alert(t("openFailed", { error: e instanceof Error ? e.message : String(e) }));
+      return false;
+    }
+  };
+
+  const openFile = async (file: File) => {
+    try {
+      const records = parseRecordsFile(await file.text(), file.name);
+      setOpened({ name: file.name, records });
+      if (records.length === 1) void openRecord(records[0], file.name);
+    } catch (e) {
+      window.alert(t("openFailed", { error: e instanceof Error ? e.message : String(e) }));
+    }
+  };
+
+  const openHistoryEntry = async (entry: HistoryEntry) => {
+    let text: string | null = null;
+    try {
+      text = await loadArchivedEpisode(entry.id);
+    } catch {
+      text = null;
+    }
+    let rec: EpisodeRecord | undefined;
+    try {
+      rec = text ? parseRecordsFile(text)[0] : undefined;
+    } catch {
+      rec = undefined;
+    }
+    if (!rec) {
+      window.alert(t("historyNotStored"));
+      return;
+    }
+    await openRecord(rec, `${t("tabHistory")} · ${new Date(entry.at).toLocaleString()}`);
+  };
+
+  const openBatchResult = (r: BatchResult) => {
+    const [rec] = parseRecordsFile(JSON.stringify(r.record));
+    void openRecord(rec, `${t("batchTitle")} · #${r.index} · trial ${r.trial + 1}`);
   };
 
   const running = !!state && !state.done;
@@ -180,16 +348,28 @@ export default function App() {
             <SetupPanel
               settings={settings}
               update={update}
-              taskCount={tasks && domain?.name === settings.domain ? tasks.length : null}
+              taskCount={taskCount}
               loading={loading}
               loadError={loadError}
               episodeRunning={running}
+              batchRunning={batchState?.status === "running"}
               endpointFor={endpointFor}
-              onStart={() => startEpisode()}
+              onStart={startFromSettings}
+              onBatch={startBatch}
             />
           </aside>
 
           <section className="col col-main">
+            {batchState && (
+              <BatchCard
+                state={batchState}
+                onStop={() => batch?.stop()}
+                onResume={() => batch?.resume()}
+                onClose={closeBatch}
+                onDownload={downloadBatch}
+                onOpen={openBatchResult}
+              />
+            )}
             {episode && state ? (
               <EpisodeView
                 episode={episode}
@@ -197,8 +377,8 @@ export default function App() {
                 preferredTool={preferredTool}
                 onDetails={() => setTab("result")}
                 onDownload={download}
-                onAgain={() => startEpisode(episode.setup.taskRef.index)}
-                onNext={nextTask}
+                onAgain={() => runAgain(episode)}
+                onNext={() => void runNext(episode)}
               />
             ) : (
               <div className="welcome">
@@ -209,7 +389,7 @@ export default function App() {
                   <li>{t("welcomeStep2")}</li>
                   <li>{t("welcomeStep3")}</li>
                 </ol>
-                <button type="button" className="btn btn-primary" disabled={loading || !task} onClick={() => startEpisode()}>
+                <button type="button" className="btn btn-primary" disabled={loading || !task} onClick={startFromSettings}>
                   {t("start")}
                 </button>
               </div>
@@ -228,6 +408,11 @@ export default function App() {
               taskDone={showEpisodeTask && !!state?.done}
               history={history.entries}
               onClearHistory={history.clear}
+              onOpenHistory={(e) => void openHistoryEntry(e)}
+              opened={opened}
+              onOpenFile={(f) => void openFile(f)}
+              onOpenRecord={(r) => void openRecord(r, `${opened?.name ?? ""} · ${r.position + 1}`)}
+              onCloseFile={() => setOpened(null)}
               onUseTool={(name) => setPreferredTool(name)}
             />
           </aside>

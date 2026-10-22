@@ -13,8 +13,10 @@ interface Props {
   loading: boolean;
   loadError: string | null;
   episodeRunning: boolean;
+  batchRunning: boolean;
   endpointFor: (p: ProviderId) => Endpoint;
   onStart: () => void;
+  onBatch: () => void;
 }
 
 const QUICK: { key: "quickWatch" | "quickPlayAgent" | "quickPlayUser" | "quickHumans"; agent: Controller; user: Controller }[] = [
@@ -117,7 +119,80 @@ function KeyInput({ provider, value, onChange }: { provider: ProviderId; value: 
   );
 }
 
-export function SetupPanel({ settings, update, taskCount, loading, loadError, episodeRunning, endpointFor, onStart }: Props) {
+function CountInput({ value, min, max, onChange }: { value: number; min: number; max?: number; onChange: (v: number) => void }) {
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      value={value}
+      onChange={(e) => {
+        const v = Math.floor(Number(e.target.value) || 0);
+        onChange(Math.max(min, max === undefined ? v : Math.min(max, v)));
+      }}
+    />
+  );
+}
+
+function BatchSetup({
+  settings,
+  update,
+  taskCount,
+  disabled,
+  onBatch,
+}: {
+  settings: Settings;
+  update: Props["update"];
+  taskCount: number | null;
+  disabled: boolean;
+  onBatch: () => void;
+}) {
+  const t = useT();
+  const b = settings.batch;
+  const last = Math.max(0, (taskCount ?? 1) - 1);
+  const from = Math.min(b.from, last);
+  const to = Math.min(Math.max(b.to, from), last);
+  const episodes = (to - from + 1) * b.trials;
+  const bothModels = settings.agent.controller === "model" && settings.user.controller === "model";
+  const set = (patch: Partial<Settings["batch"]>) => update((s) => ({ ...s, batch: { ...s.batch, ...patch } }));
+  return (
+    <details className="batch-setup">
+      <summary>{t("batchSection")}</summary>
+      <p className="note">{t("batchHint", { k: b.trials })}</p>
+      <div className="row three">
+        <label className="field">
+          <span>{t("batchFrom")}</span>
+          <CountInput value={from} min={0} max={last} onChange={(v) => set({ from: v, to: Math.max(v, b.to) })} />
+        </label>
+        <label className="field">
+          <span>{t("batchTo")}</span>
+          <CountInput value={to} min={0} max={last} onChange={(v) => set({ to: v, from: Math.min(v, b.from) })} />
+        </label>
+        <label className="field">
+          <span>{t("batchTrials")}</span>
+          <CountInput value={b.trials} min={1} max={100} onChange={(v) => set({ trials: v })} />
+        </label>
+      </div>
+      {!bothModels && <p className="note">{t("batchNeedsModels")}</p>}
+      <button type="button" className="btn btn-block" disabled={disabled || !bothModels || !taskCount} onClick={onBatch}>
+        {t("batchRun", { n: episodes })}
+      </button>
+    </details>
+  );
+}
+
+export function SetupPanel({
+  settings,
+  update,
+  taskCount,
+  loading,
+  loadError,
+  episodeRunning,
+  batchRunning,
+  endpointFor,
+  onStart,
+  onBatch,
+}: Props) {
   const t = useT();
   const splits = DOMAIN_SPLITS[settings.domain];
   const max = taskCount ?? 0;
@@ -256,6 +331,7 @@ export function SetupPanel({ settings, update, taskCount, loading, loadError, ep
           <input type="checkbox" checked={settings.stepMode} onChange={(e) => update({ stepMode: e.target.checked })} />
           <span>{t("stepMode")}</span>
         </label>
+        <BatchSetup settings={settings} update={update} taskCount={taskCount} disabled={loading || batchRunning} onBatch={onBatch} />
       </section>
 
       <div className="start-bar">

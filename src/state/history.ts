@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import type { DomainName } from "../tau/env";
 import type { EndReason } from "../tau/episode";
+import { clearArchive, pruneArchive } from "./archive";
 
 export interface HistoryEntry {
   id: string;
@@ -13,6 +14,8 @@ export interface HistoryEntry {
   reward: number;
   reason: EndReason;
   steps: number;
+  /** 0-based trial number when the episode was part of a batch run. */
+  trial?: number;
 }
 
 const STORAGE_KEY = "tau-playground.history.v1";
@@ -41,12 +44,14 @@ export function useHistory() {
     setEntries((prev) => {
       const next = [entry, ...prev].slice(0, MAX_ENTRIES);
       save(next);
+      if (prev.length >= MAX_ENTRIES) pruneArchive(new Set(next.map((e) => e.id))).catch(() => {});
       return next;
     });
   }, []);
   const clear = useCallback(() => {
     save([]);
     setEntries([]);
+    clearArchive().catch(() => {});
   }, []);
   return { entries, add, clear };
 }

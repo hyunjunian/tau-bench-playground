@@ -122,7 +122,8 @@ function isDailyQuota(text: string): boolean {
   return /per[\s_-]?day|daily|PerDay/i.test(text);
 }
 
-function textContent(content: unknown): string | null {
+/** Text of a message's `content` (a string, or a list of text parts). */
+export function textContent(content: unknown): string | null {
   if (content === null || content === undefined) return null;
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
