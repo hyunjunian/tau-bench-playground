@@ -712,6 +712,11 @@ input[type="number"] {
   height: 10px;
   margin-right: 5px;
 }
+.batch-models {
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
 .batch-avg {
   font-variant-numeric: tabular-nums;
 }

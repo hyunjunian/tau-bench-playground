@@ -59,6 +59,11 @@ export function BatchCard({
           <span className="pill">
             {plan.domain} · {plan.split} · {range} × {plan.trials}
           </span>
+          {plan.models && (
+            <span className="muted batch-models" title={t("batchModels")}>
+              {plan.models.agent} / {plan.models.user}
+            </span>
+          )}
           <span className={`badge ${status === "done" ? "badge-accent" : ""}`}>
             {status === "running" && <span className="spinner" aria-hidden />}
             {statusText}

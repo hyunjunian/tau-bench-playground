@@ -299,7 +299,8 @@ export default function App() {
     const from = Math.min(b.from, tasks.length - 1);
     const to = Math.min(Math.max(b.to, from), tasks.length - 1);
     const indices = Array.from({ length: to - from + 1 }, (_, i) => from + i);
-    runBatch({ domain: domain.name, split: settings.split, indices, trials: b.trials }, domain, tasks);
+    const models = { agent: settings.agent.model.model, user: settings.user.model.model };
+    runBatch({ domain: domain.name, split: settings.split, indices, trials: b.trials, models }, domain, tasks);
   };
 
   /** A new batch over the tasks of the shown batch that failed at least once, with the same number of trials. */
@@ -310,7 +311,8 @@ export default function App() {
     if (failed.length === 0) return;
     const { plan } = shown;
     const [batchDomain, batchTasks] = await Promise.all([loadDomain(plan.domain), loadTasks(plan.domain, plan.split)]);
-    runBatch({ ...plan, indices: failed }, batchDomain, batchTasks);
+    const s = settingsRef.current;
+    runBatch({ ...plan, indices: failed, models: { agent: s.agent.model.model, user: s.user.model.model } }, batchDomain, batchTasks);
   };
 
   const closeBatch = () => {
@@ -321,7 +323,8 @@ export default function App() {
   const downloadBatch = () => {
     if (!batch) return;
     const { plan } = batch.getState();
-    downloadJson(`tau-bench-${plan.domain}-${plan.split}-batch-${Date.now()}.json`, batch.exportResults());
+    const who = plan.models ? `-${plan.models.agent.split("/").pop()}` : "";
+    downloadJson(`tau-bench-${plan.domain}-${plan.split}-batch${who}-${Date.now()}.json`, batch.exportResults());
   };
 
   const download = () => {

@@ -12,6 +12,8 @@ export interface BatchPlan {
   split: string;
   indices: number[];
   trials: number;
+  /** Model ids when the batch started (for display; each episode reads the settings when it calls a model). */
+  models?: { agent: string; user: string };
 }
 
 export interface BatchRunRef {
