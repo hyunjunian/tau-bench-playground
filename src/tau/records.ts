@@ -7,7 +7,7 @@ import type { ChatMessage } from "../llm/client";
 import { DEFAULT_MODEL } from "../llm/providers";
 import { DOMAIN_SPLITS, type Domain, type DomainName, type Task, parseTasks } from "./env";
 import { type Controller, type EndReason, Episode, type ReplaySource, type Role } from "./episode";
-import { PyDict, PyFloat, type PyValue, jsonDumps, parseJson, toPlain } from "./py";
+import { PyDict, PyFloat, type PyValue, jsonDumps, parseJson, strictEqual, toPlain } from "./py";
 
 export interface EpisodeRecord {
   /** Position in the file (0-based). */
@@ -76,8 +76,35 @@ function readTraj(v: PyValue | undefined): ChatMessage[] {
   if (!Array.isArray(v)) return [];
   return v
     .filter((m): m is PyDict => m instanceof PyDict && typeof m.get("role") === "string")
-    .map((m) => toPlain(m) as ChatMessage);
+    .map((m) => {
+      // Some files (the Claude trajectories in tau-bench's historical_trajectories) store tool-call
+      // arguments as an object rather than a JSON string; serialize them like Python so ints and
+      // floats stay apart.
+      const calls = m.get("tool_calls");
+      if (Array.isArray(calls)) {
+        for (const c of calls) {
+          const fn = c instanceof PyDict ? asDict(c.get("function")) : null;
+          const args = fn?.get("arguments");
+          if (fn && args instanceof PyDict) fn.set("arguments", jsonDumps(args));
+        }
+      }
+      return toPlain(m) as ChatMessage;
+    });
 }
+
+/**
+ * Real runs that the tau-bench authors published (historical_trajectories), pinned to the commit the
+ * playground's data comes from. raw.githubusercontent.com allows cross-origin reads.
+ */
+export const SAMPLE_RUNS = [
+  { label: "GPT-4o airline", file: "gpt-4o-airline.json", mb: 4 },
+  { label: "GPT-4o retail", file: "gpt-4o-retail.json", mb: 11 },
+  { label: "Claude 3.5 Sonnet airline", file: "sonnet-35-new-airline.json", mb: 11 },
+  { label: "Claude 3.5 Sonnet retail", file: "sonnet-35-new-retail.json", mb: 27 },
+].map((s) => ({
+  ...s,
+  url: `https://raw.githubusercontent.com/sierra-research/tau-bench/59a200c6d575d595120f1cb70fea53cef0632f6b/historical_trajectories/${s.file}`,
+}));
 
 /** Model names from a tau-bench results file name (run.py's checkpoint path). */
 export function modelsFromFileName(name: string): Partial<Record<Role, string>> {
@@ -155,6 +182,17 @@ function sameTask(a: Task, b: Task): boolean {
   return a.instruction === b.instruction && a.user_id === b.user_id;
 }
 
+/** Same user and ground truth: the task, with its instruction reworded since the run (as tau-bench did for airline). */
+function sameGroundTruth(a: Task, b: Task): boolean {
+  return (
+    a.user_id === b.user_id &&
+    a.actions.length === b.actions.length &&
+    a.actions.every((x, i) => x.name === b.actions[i].name && strictEqual(x.kwargs, b.actions[i].kwargs)) &&
+    a.outputs.length === b.outputs.length &&
+    a.outputs.every((o, i) => o === b.outputs[i])
+  );
+}
+
 /** Count of agent actions (tool calls and replies) in a trajectory. */
 function agentActions(traj: ChatMessage[]): number {
   return traj.filter((m) => m.role === "assistant").length;
@@ -181,6 +219,8 @@ export async function resolveRecord(record: EpisodeRecord, loaders: Loaders): Pr
     const tasks = await loaders.loadTasks(domainName, preferred);
     const t = tasks[record.taskId];
     if (t && (!record.task || sameTask(t, record.task))) found = { split: preferred, index: record.taskId, task: t };
+    // Keep the wording the user simulator was given; the reward is the same.
+    else if (t && record.task && sameGroundTruth(t, record.task)) found = { split: preferred, index: record.taskId, task: record.task };
   }
   if (!found && record.task) {
     for (const split of [preferred, ...splits.filter((s) => s !== preferred)]) {

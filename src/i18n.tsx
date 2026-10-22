@@ -119,6 +119,9 @@ const en = {
   welcomeStep3: "Add a free API key if a model is involved, then start.",
   welcomeBatch: "To score a model on many tasks at once (average reward, pass^k), use Batch run under Options.",
   welcomeOpen: "Have a downloaded episode or a tau-bench results file? Drop the JSON on this page to replay it, or",
+  welcomeSamples: "No API key yet? Replay real runs that the τ-bench authors published:",
+  samplesLabel: "Runs published by the τ-bench authors:",
+  downloading: "Downloading…",
 
   greetingLabel: "fixed opening line",
   userLabel: "User",
@@ -403,6 +406,9 @@ const ko: Dict = {
   welcomeStep3: "모델을 쓰면 무료 API 키를 넣고 시작하세요.",
   welcomeBatch: "여러 태스크로 모델을 한꺼번에 채점하려면(평균 reward, pass^k) 옵션의 일괄 실행을 쓰세요.",
   welcomeOpen: "내려받은 에피소드나 tau-bench 결과 파일이 있다면 JSON 파일을 이 페이지에 끌어다 놓아 다시 볼 수 있습니다. 또는",
+  welcomeSamples: "API 키가 없다면, τ-bench 저자들이 공개한 실제 실행 기록을 다시 볼 수 있습니다:",
+  samplesLabel: "τ-bench 저자들이 공개한 실행 기록:",
+  downloading: "내려받는 중…",
 
   greetingLabel: "고정 첫 인사",
   userLabel: "유저",

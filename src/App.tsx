@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { BatchCard } from "./components/BatchCard";
 import { EpisodeView } from "./components/EpisodeView";
-import { Inspector, type InspectorTab, OpenFileButton, type OpenedFile, type Recomputed } from "./components/Inspector";
+import {
+  Inspector,
+  type InspectorTab,
+  OpenFileButton,
+  type OpenedFile,
+  type Recomputed,
+  SampleRunLinks,
+} from "./components/Inspector";
 import { SetupPanel } from "./components/SetupPanel";
 import type { PreferredTool } from "./components/ToolForm";
 import { loadDomain, loadTasks } from "./data/loader";
@@ -425,8 +432,10 @@ export default function App() {
   };
 
   /** A saved file on the web (it must allow cross-origin reads, as raw.githubusercontent.com does). */
+  const [downloading, setDownloading] = useState<string | null>(null);
   const openUrl = async (url: string) => {
     let text: string;
+    setDownloading(url);
     try {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -434,6 +443,8 @@ export default function App() {
     } catch (e) {
       window.alert(t("openFailed", { error: `${url}: ${e instanceof Error ? e.message : String(e)}` }));
       return;
+    } finally {
+      setDownloading((d) => (d === url ? null : d));
     }
     const name = new URL(url, location.href).pathname.split("/").pop() || url;
     let decoded = name;
@@ -629,6 +640,9 @@ export default function App() {
                   <br />
                   {t("welcomeOpen")} <OpenFileButton onOpen={(f) => void openFile(f)} />
                 </p>
+                <p className="welcome-samples muted">
+                  {t("welcomeSamples")} <SampleRunLinks onOpenUrl={(u) => void openUrl(u)} downloading={downloading !== null} />
+                </p>
               </div>
             )}
           </section>
@@ -650,6 +664,7 @@ export default function App() {
               opened={opened}
               onOpenFile={(f) => void openFile(f)}
               onOpenUrl={(u) => void openUrl(u)}
+              downloading={downloading !== null}
               onOpenRecord={(r) => void openRecord(r, `${opened?.name ?? ""} · ${r.position + 1}`)}
               onCloseFile={() => {
                 setOpened(null);

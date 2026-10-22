@@ -433,6 +433,33 @@ describe("replaying saved episodes", () => {
     expect(() => ep.setup.resolveEndpoint(ep.setup.modelFor("agent"))).toThrow();
   });
 
+  it("reads tool-call arguments stored as an object (tau-bench's historical Claude runs)", async () => {
+    const task = tasksFor("retail", "test")[0];
+    const record = toolCallingRecord(domains.retail, task, 0);
+    for (const m of record.traj as { tool_calls?: { function: { arguments: unknown } }[] }[]) {
+      for (const c of m.tool_calls ?? []) c.function.arguments = JSON.parse(c.function.arguments as string);
+    }
+    const [parsed] = parseRecordsFile(JSON.stringify([record]));
+    expect((await replayRecord(parsed, loaders)).getState().done?.reward).toBe(1);
+
+    const call = (args: string) => `[{"task_id": 0, "reward": 0.0, "info": {}, "trial": 0, "traj": [
+      {"role": "system", "content": "# Retail agent policy"},
+      {"role": "assistant", "content": null, "tool_calls": [{"id": "0", "function": {"name": "calculate", "arguments": ${args}}}]}]}]`;
+    const [floats] = parseRecordsFile(call('{"amount": 1.0, "n": 2}'));
+    expect(floats.traj[1].tool_calls?.[0].function.arguments).toBe('{"amount": 1.0, "n": 2}'); // ints and floats stay apart
+  });
+
+  it("matches a task whose instruction was reworded since the run, keeping the recorded wording", async () => {
+    const task = tasksFor("airline", "test")[1];
+    const reworded = { ...task, instruction: task.instruction.replace(/^Your user id is (\S+?),/, "You are $1,") };
+    expect(reworded.instruction).not.toBe(task.instruction);
+    const [parsed] = parseRecordsFile(JSON.stringify([toolCallingRecord(domains.airline, reworded, 1)]));
+    const resolved = await resolveRecord(parsed, loaders);
+    expect(resolved.taskRef).toEqual({ domain: "airline", split: "test", index: 1 });
+    expect(resolved.task.instruction).toBe(reworded.instruction);
+    expect((await replayRecord(parsed, loaders)).getState().done?.reward).toBe(1);
+  });
+
   it("marks a trajectory that just stops as incomplete", async () => {
     const record = toolCallingRecord(domains.retail, tasksFor("retail", "test")[0], 0);
     record.traj = (record.traj as unknown[]).slice(0, 6);

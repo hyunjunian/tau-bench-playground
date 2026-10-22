@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { HistoryEntry } from "../state/history";
 import { compareDatabases, compareWrites } from "../tau/diff";
@@ -7,7 +7,7 @@ import type { Episode, EpisodeState } from "../tau/episode";
 import { averageReward, isSuccess, passHatK } from "../tau/metrics";
 import { userSystemPrompt } from "../tau/prompts";
 import { PyDict, type PyValue, jsonPretty } from "../tau/py";
-import type { EpisodeRecord } from "../tau/records";
+import { type EpisodeRecord, SAMPLE_RUNS } from "../tau/records";
 import { isReadTool, valueText } from "../ui/format";
 import { endReasonText } from "../ui/reasons";
 import { JsonBlock } from "./JsonBlock";
@@ -534,6 +534,35 @@ function ModelSummary({ entries }: { entries: HistoryEntry[] }) {
   );
 }
 
+/** Links to the runs the tau-bench authors published; a link also works as ?file= in a new tab. */
+export function SampleRunLinks({ onOpenUrl, downloading }: { onOpenUrl: (url: string) => void; downloading: boolean }) {
+  const t = useT();
+  return (
+    <>
+      {SAMPLE_RUNS.map((s, i) => (
+        <Fragment key={s.file}>
+          {i > 0 && " · "}
+          <a
+            href={`?file=${encodeURIComponent(s.url)}`}
+            title={`${s.file} (${s.mb} MB)`}
+            onClick={(e) => {
+              e.preventDefault();
+              onOpenUrl(s.url);
+            }}
+          >
+            {s.label}
+          </a>
+        </Fragment>
+      ))}
+      {downloading && (
+        <span className="welcome-downloading" role="status">
+          <span className="spinner" aria-hidden /> {t("downloading")}
+        </span>
+      )}
+    </>
+  );
+}
+
 function HistoryTab({
   entries,
   onClear,
@@ -542,6 +571,7 @@ function HistoryTab({
   opened,
   onOpenFile,
   onOpenUrl,
+  downloading,
   onOpenRecord,
   onCloseFile,
   onRecompute,
@@ -553,6 +583,8 @@ function HistoryTab({
   opened: OpenedFile | null;
   onOpenFile: (file: File) => void;
   onOpenUrl: (url: string) => void;
+  /** A file is being downloaded from a URL. */
+  downloading: boolean;
   onOpenRecord: (r: EpisodeRecord) => void;
   onCloseFile: () => void;
   onRecompute: () => void;
@@ -574,6 +606,9 @@ function HistoryTab({
           </button>
         </span>
       </div>
+      <p className="welcome-samples muted small">
+        {t("samplesLabel")} <SampleRunLinks onOpenUrl={onOpenUrl} downloading={downloading} />
+      </p>
       {opened && <OpenedFileList file={opened} onOpen={onOpenRecord} onClose={onCloseFile} onRecompute={onRecompute} />}
       <h3>{t("historyLocal")}</h3>
       {entries.length === 0 ? (
@@ -645,6 +680,7 @@ export function Inspector({
   opened,
   onOpenFile,
   onOpenUrl,
+  downloading,
   onOpenRecord,
   onCloseFile,
   onRecompute,
@@ -667,6 +703,7 @@ export function Inspector({
   opened: OpenedFile | null;
   onOpenFile: (file: File) => void;
   onOpenUrl: (url: string) => void;
+  downloading: boolean;
   onOpenRecord: (r: EpisodeRecord) => void;
   onCloseFile: () => void;
   onRecompute: () => void;
@@ -724,6 +761,7 @@ export function Inspector({
             opened={opened}
             onOpenFile={onOpenFile}
             onOpenUrl={onOpenUrl}
+            downloading={downloading}
             onOpenRecord={onOpenRecord}
             onCloseFile={onCloseFile}
             onRecompute={onRecompute}

@@ -952,6 +952,19 @@ input[type="number"] {
   border-top: 1px solid var(--border);
   font-size: 13px;
 }
+.welcome-samples {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+.welcome-samples a {
+  white-space: nowrap;
+}
+.welcome-downloading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+}
 
 /* ---------- episode ---------- */
 
