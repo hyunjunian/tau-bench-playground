@@ -541,6 +541,7 @@ function HistoryTab({
   onOpenEntry,
   opened,
   onOpenFile,
+  onOpenUrl,
   onOpenRecord,
   onCloseFile,
   onRecompute,
@@ -551,17 +552,27 @@ function HistoryTab({
   onOpenEntry: (e: HistoryEntry) => void;
   opened: OpenedFile | null;
   onOpenFile: (file: File) => void;
+  onOpenUrl: (url: string) => void;
   onOpenRecord: (r: EpisodeRecord) => void;
   onCloseFile: () => void;
   onRecompute: () => void;
 }) {
   const t = useT();
   const avg = averageReward(entries.map((e) => ({ task: "", reward: e.reward })));
+  const askUrl = () => {
+    const url = window.prompt(t("openUrlPrompt"))?.trim();
+    if (url) onOpenUrl(url);
+  };
   return (
     <div className="tab-body">
       <div className="row space">
         <span className="muted small">{t("openFileHint")}</span>
-        <OpenFileButton onOpen={onOpenFile} />
+        <span className="row">
+          <OpenFileButton onOpen={onOpenFile} />
+          <button type="button" className="btn btn-small" onClick={askUrl}>
+            {t("openUrl")}
+          </button>
+        </span>
       </div>
       {opened && <OpenedFileList file={opened} onOpen={onOpenRecord} onClose={onCloseFile} onRecompute={onRecompute} />}
       <h3>{t("historyLocal")}</h3>
@@ -633,6 +644,7 @@ export function Inspector({
   onOpenHistory,
   opened,
   onOpenFile,
+  onOpenUrl,
   onOpenRecord,
   onCloseFile,
   onRecompute,
@@ -654,6 +666,7 @@ export function Inspector({
   onOpenHistory: (e: HistoryEntry) => void;
   opened: OpenedFile | null;
   onOpenFile: (file: File) => void;
+  onOpenUrl: (url: string) => void;
   onOpenRecord: (r: EpisodeRecord) => void;
   onCloseFile: () => void;
   onRecompute: () => void;
@@ -710,6 +723,7 @@ export function Inspector({
             onOpenEntry={onOpenHistory}
             opened={opened}
             onOpenFile={onOpenFile}
+            onOpenUrl={onOpenUrl}
             onOpenRecord={onOpenRecord}
             onCloseFile={onCloseFile}
             onRecompute={onRecompute}

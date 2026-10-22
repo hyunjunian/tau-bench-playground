@@ -387,16 +387,40 @@ export default function App() {
     publish(false);
   };
 
-  const openFile = async (file: File) => {
+  const openText = (text: string, name: string) => {
     try {
-      const records = parseRecordsFile(await file.text(), file.name);
-      setOpened({ name: file.name, records });
-      if (records.length === 1) void openRecord(records[0], file.name);
+      const records = parseRecordsFile(text, name);
+      setOpened({ name, records });
+      if (records.length === 1) void openRecord(records[0], name);
       else setTab("history");
     } catch (e) {
       window.alert(t("openFailed", { error: e instanceof Error ? e.message : String(e) }));
     }
   };
+
+  const openFile = async (file: File) => openText(await file.text(), file.name);
+
+  /** A saved file on the web (it must allow cross-origin reads, as raw.githubusercontent.com does). */
+  const openUrl = async (url: string) => {
+    let text: string;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      text = await res.text();
+    } catch (e) {
+      window.alert(t("openFailed", { error: `${url}: ${e instanceof Error ? e.message : String(e)}` }));
+      return;
+    }
+    openText(text, decodeURIComponent(new URL(url, location.href).pathname.split("/").pop() || url));
+  };
+
+  // ?file=<url> opens that file on load, so a results file can be shared as a link.
+  const openUrlRef = useRef(openUrl);
+  openUrlRef.current = openUrl;
+  useEffect(() => {
+    const url = new URLSearchParams(location.search).get("file");
+    if (url) void openUrlRef.current(url);
+  }, []);
 
   // A JSON file dropped anywhere on the page is opened like "Open JSON…".
   const openFileRef = useRef(openFile);
@@ -591,6 +615,7 @@ export default function App() {
               onOpenHistory={(e) => void openHistoryEntry(e)}
               opened={opened}
               onOpenFile={(f) => void openFile(f)}
+              onOpenUrl={(u) => void openUrl(u)}
               onOpenRecord={(r) => void openRecord(r, `${opened?.name ?? ""} · ${r.position + 1}`)}
               onCloseFile={() => setOpened(null)}
               onRecompute={() => void recomputeOpened()}
