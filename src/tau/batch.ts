@@ -99,8 +99,9 @@ export class BatchRun {
     for (const l of this.listeners) l();
   }
 
-  get total(): number {
-    return this.state.plan.indices.length * this.state.plan.trials;
+  /** The episode of the run in progress, if any. */
+  get currentEpisode(): Episode | null {
+    return this.episode;
   }
 
   start() {

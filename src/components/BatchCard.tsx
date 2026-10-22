@@ -10,6 +10,7 @@ function cellClass(result: BatchResult | undefined, running: boolean): string {
 
 export function BatchCard({
   state,
+  waitingOnError,
   onStop,
   onResume,
   onClose,
@@ -17,6 +18,8 @@ export function BatchCard({
   onOpen,
 }: {
   state: BatchState;
+  /** The current episode stopped on an error that needs the user (shown below the batch card). */
+  waitingOnError: boolean;
   onStop: () => void;
   onResume: () => void;
   onClose: () => void;
@@ -49,6 +52,7 @@ export function BatchCard({
             {statusText}
           </span>
           <span className="muted">{t("batchProgress", { done: results.length, total })}</span>
+          {waitingOnError && !state.autoRetry && <span className="batch-retry">{t("batchWaiting")}</span>}
           {state.autoRetry && (
             <span className="batch-retry">
               {t("batchAutoRetry", {

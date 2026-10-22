@@ -91,6 +91,7 @@ const en = {
   batchCellRunning: "#{index} · trial {trial}: running",
   batchOpenHint: "Click a finished cell to open that episode.",
   batchAutoRetry: "provider error: retrying in {s}s ({n}/{max})",
+  batchWaiting: "waiting for you: see the error below",
   confirmStopBatch: "This stops the batch run. Continue?",
 
   start: "Start episode",
@@ -338,6 +339,7 @@ const ko: Dict = {
   batchCellRunning: "#{index} · {trial}번째 시도: 실행 중",
   batchOpenHint: "끝난 칸을 누르면 그 에피소드를 엽니다.",
   batchAutoRetry: "제공자 오류: {s}초 후 재시도 ({n}/{max})",
+  batchWaiting: "대기 중: 아래 오류를 확인하세요",
   confirmStopBatch: "일괄 실행을 멈춥니다. 계속할까요?",
 
   start: "에피소드 시작",

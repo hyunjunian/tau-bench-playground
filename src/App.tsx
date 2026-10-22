@@ -436,6 +436,7 @@ export default function App() {
             {batchState && (
               <BatchCard
                 state={batchState}
+                waitingOnError={batchState.status === "running" && !!state?.error && episode === batch?.currentEpisode}
                 onStop={() => batch?.stop()}
                 onResume={() => batch?.resume()}
                 onClose={closeBatch}
