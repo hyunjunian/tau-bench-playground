@@ -352,7 +352,7 @@ export default function App() {
 
   const openBatchResult = (r: BatchResult) => {
     const [rec] = parseRecordsFile(JSON.stringify(r.record));
-    void openRecord(rec, `${t("batchTitle")} · #${r.index} · trial ${r.trial + 1}`);
+    void openRecord(rec, `${t("batchTitle")} · #${r.index} · ${t("colTrial")} ${r.trial + 1}`);
   };
 
   const running = !!state && !state.done;
