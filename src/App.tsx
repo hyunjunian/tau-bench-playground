@@ -83,6 +83,15 @@ export default function App() {
     else root.dataset.theme = settings.theme;
   }, [settings.theme]);
 
+  // Leaving the page would lose a running batch or an unfinished episode, so let the browser ask first.
+  const unsaved = batchState?.status === "running" || (!!state && !state.done && state.items.length > 1);
+  useEffect(() => {
+    if (!unsaved) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [unsaved]);
+
   // Batch progress in the tab title, for runs left in a background tab.
   const batchProgress =
     batchState?.status === "running" ? `(${batchState.results.length}/${batchState.plan.indices.length * batchState.plan.trials}) ` : "";
