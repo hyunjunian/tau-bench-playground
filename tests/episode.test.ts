@@ -6,6 +6,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "../src/llm/client";
 import { BatchRun, MAX_AUTO_RETRIES } from "../src/tau/batch";
+import { compareWrites } from "../src/tau/diff";
 import { type Domain, type DomainName, type Task, TauEnv } from "../src/tau/env";
 import { Episode, type EpisodeSetup, parseToolArguments } from "../src/tau/episode";
 import { averageReward, comb, passHatK } from "../src/tau/metrics";
@@ -127,6 +128,31 @@ function taskJson(task: Task): string {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe("compareWrites", () => {
+  it("explains a missed write by the closest call, and lists writes the ground truth does not have", () => {
+    const task = tasksFor("retail", "test")[0];
+    const isWrite = (name: string) => !/^(get_|find_|list_|calculate|think)/.test(name);
+    const exchange = task.actions.find((a) => a.name === "exchange_delivered_order_items")!;
+    const wrongItems = parseToolArguments(jsonDumps(exchange.kwargs).replace("7747408585", "1111111111"));
+    const agent = [
+      ...task.actions.filter((a) => !isWrite(a.name)),
+      { name: "exchange_delivered_order_items", kwargs: wrongItems },
+      { name: "cancel_pending_order", kwargs: parseToolArguments('{"order_id": "#W1", "reason": "no longer needed"}') },
+      { name: "respond", kwargs: parseToolArguments('{"content": "done"}') },
+    ];
+    const { checks, extra } = compareWrites(task.actions, agent, isWrite);
+    expect(checks).toHaveLength(1);
+    expect(checks[0].matched).toBe(false);
+    expect(checks[0].closest?.diffs).toEqual([{ path: "new_item_ids[1]", expected: "7747408585", actual: "1111111111" }]);
+    expect(extra.map((a) => a.name)).toEqual(["exchange_delivered_order_items", "cancel_pending_order"]);
+
+    const perfect = compareWrites(task.actions, task.actions, isWrite);
+    expect(perfect.checks.every((c) => c.matched)).toBe(true);
+    expect(perfect.extra).toEqual([]);
+    expect(compareWrites(task.actions, [], isWrite).checks[0]).toMatchObject({ matched: false, closest: null });
+  });
 });
 
 describe("metrics", () => {

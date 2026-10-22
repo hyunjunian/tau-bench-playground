@@ -227,6 +227,10 @@ const en = {
   absent: "(absent)",
   agentActionsTitle: "Agent's tool calls",
   matchedGt: "matches a ground-truth action",
+  gtNeverCalled: "the agent never called this tool",
+  gtClosest: "the agent's closest call differs:",
+  argCol: "Argument",
+  extraWrites: "Agent writes not in the ground truth",
   noToolCalls: "No tool calls.",
 
   dataNote: "Debug view of the live database. In τ-bench the agent can only see it through tools.",
@@ -501,6 +505,10 @@ const ko: Dict = {
   absent: "(없음)",
   agentActionsTitle: "에이전트의 툴 호출",
   matchedGt: "정답 행동과 일치",
+  gtNeverCalled: "에이전트가 이 툴을 호출하지 않음",
+  gtClosest: "에이전트의 가장 비슷한 호출과 다른 점:",
+  argCol: "인자",
+  extraWrites: "정답에 없는 에이전트의 쓰기",
   noToolCalls: "툴 호출 없음.",
 
   dataNote: "현재 데이터베이스의 디버그 뷰입니다. τ-bench에서 에이전트는 툴로만 데이터베이스를 볼 수 있습니다.",

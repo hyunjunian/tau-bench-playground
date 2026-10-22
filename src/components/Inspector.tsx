@@ -1,12 +1,12 @@
 import { useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { HistoryEntry } from "../state/history";
-import { compareDatabases } from "../tau/diff";
+import { compareDatabases, compareWrites } from "../tau/diff";
 import type { Domain, Task } from "../tau/env";
 import type { Episode, EpisodeState } from "../tau/episode";
 import { averageReward, isSuccess, passHatK } from "../tau/metrics";
 import { userSystemPrompt } from "../tau/prompts";
-import { PyDict, type PyValue, jsonPretty, strictEqual } from "../tau/py";
+import { PyDict, type PyValue, jsonPretty } from "../tau/py";
 import type { EpisodeRecord } from "../tau/records";
 import { isReadTool, valueText } from "../ui/format";
 import { endReasonText } from "../ui/reasons";
@@ -165,8 +165,8 @@ function ResultTab({ episode, state }: { episode: Episode | null; state: Episode
   }, [episode, done]);
   if (!episode || !done) return <div className="tab-body muted">{t("resultPending")}</div>;
   const info = done.info;
-  const gtWrites = episode.setup.task.actions.filter((a) => !isReadTool(a.name));
   const agentTools = episode.env.actions.filter((a) => a.name !== "respond");
+  const writes = compareWrites(episode.setup.task.actions, episode.env.actions, (name) => !isReadTool(name));
   return (
     <div className="tab-body">
       <div className={`result-summary ${done.reward === 1 ? "ok" : "bad"}`}>
@@ -246,19 +246,49 @@ function ResultTab({ episode, state }: { episode: Episode | null; state: Episode
 
       <h3>{t("gtActions")}</h3>
       <ol className="action-list">
-        {gtWrites.map((a, i) => {
-          const matched = agentTools.some((x) => x.name === a.name && strictEqual(x.kwargs, a.kwargs));
-          return (
-            <li key={i} className="write">
-              <span className={matched ? "check-ok" : "check-bad"} title={matched ? t("matchedGt") : undefined}>
-                {matched ? "✓" : "✗"}
-              </span>{" "}
-              <code className="tool-name">{a.name}</code>
-              <JsonBlock text={jsonPretty(a.kwargs)} className="compact" />
-            </li>
-          );
-        })}
+        {writes.checks.map(({ action: a, matched, closest }, i) => (
+          <li key={i} className="write">
+            <span className={matched ? "check-ok" : "check-bad"} title={matched ? t("matchedGt") : undefined}>
+              {matched ? "✓" : "✗"}
+            </span>{" "}
+            <code className="tool-name">{a.name}</code>
+            {!matched && <span className="muted small"> {closest ? t("gtClosest") : t("gtNeverCalled")}</span>}
+            <JsonBlock text={jsonPretty(a.kwargs)} className="compact" />
+            {closest && (
+              <table className="diff">
+                <thead>
+                  <tr>
+                    <th>{t("argCol")}</th>
+                    <th>{t("expected")}</th>
+                    <th>{t("actual")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {closest.diffs.map((d) => (
+                    <tr key={d.path}>
+                      <td>
+                        <code>{d.path}</code>
+                      </td>
+                      <td>
+                        <code>{valueText(d.expected, t("absent"))}</code>
+                      </td>
+                      <td>
+                        <code>{valueText(d.actual, t("absent"))}</code>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </li>
+        ))}
       </ol>
+      {writes.extra.length > 0 && (
+        <>
+          <h3>{t("extraWrites")}</h3>
+          <ActionList actions={writes.extra} />
+        </>
+      )}
       <h3>{t("agentActionsTitle")}</h3>
       <ActionList actions={agentTools} />
     </div>

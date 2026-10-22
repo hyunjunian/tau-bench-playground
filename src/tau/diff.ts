@@ -1,3 +1,4 @@
+import { type Action, RESPOND_ACTION_NAME } from "./env";
 import { type PyDict, type PyValue, changedRecords, isDict, strictEqual } from "./py";
 
 export interface FieldDiff {
@@ -45,4 +46,37 @@ export function compareDatabases(initial: PyDict, actual: PyDict, expected: PyDi
     out.push({ collection: c.collection, key: c.key, expected: e, actual: a, ok, diffs: ok ? [] : diffValues(e, a) });
   }
   return out;
+}
+
+export interface WriteCheck {
+  /** A ground-truth action that changes the database. */
+  action: Action;
+  matched: boolean;
+  /** When nothing matched exactly: the agent's call to the same tool with the fewest differing arguments. */
+  closest: { call: Action; diffs: FieldDiff[] } | null;
+}
+
+/**
+ * The ground truth's writes checked against the agent's calls (exact match, else the nearest call to the
+ * same tool and how its arguments differ), plus the agent's writes that match no ground-truth action.
+ */
+export function compareWrites(
+  groundTruth: Action[],
+  agent: Action[],
+  isWrite: (name: string) => boolean,
+): { checks: WriteCheck[]; extra: Action[] } {
+  const gtWrites = groundTruth.filter((a) => isWrite(a.name));
+  const agentWrites = agent.filter((a) => a.name !== RESPOND_ACTION_NAME && isWrite(a.name));
+  const same = (a: Action, b: Action) => a.name === b.name && strictEqual(a.kwargs, b.kwargs);
+  const checks = gtWrites.map((action): WriteCheck => {
+    if (agentWrites.some((c) => same(c, action))) return { action, matched: true, closest: null };
+    let closest: WriteCheck["closest"] = null;
+    for (const call of agentWrites.filter((c) => c.name === action.name)) {
+      const diffs = diffValues(action.kwargs, call.kwargs);
+      if (!closest || diffs.length < closest.diffs.length) closest = { call, diffs };
+    }
+    return { action, matched: false, closest };
+  });
+  const extra = agentWrites.filter((c) => !gtWrites.some((g) => same(g, c)));
+  return { checks, extra };
 }
