@@ -7,6 +7,10 @@ const en = {
   appTagline: "Play the agent or the customer yourself, or let a model do it.",
   paper: "Paper",
   source: "Source",
+  themeTitle: "Theme: {theme} (click to change)",
+  themeSystem: "same as the system",
+  themeLight: "light",
+  themeDark: "dark",
 
   setupTask: "Task",
   domainRetail: "Retail",
@@ -261,6 +265,10 @@ const ko: Dict = {
   appTagline: "에이전트나 고객 역할을 직접 하거나, 모델에게 맡겨 보세요.",
   paper: "논문",
   source: "소스",
+  themeTitle: "테마: {theme} (눌러서 바꾸기)",
+  themeSystem: "시스템 설정 따르기",
+  themeLight: "밝게",
+  themeDark: "어둡게",
 
   setupTask: "태스크",
   domainRetail: "리테일",

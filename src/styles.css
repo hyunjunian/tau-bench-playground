@@ -30,8 +30,9 @@
   color-scheme: light;
 }
 
+/* Dark colors follow the system unless a theme is picked in the header (data-theme on <html>). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0e1015;
     --panel: #161920;
     --panel-2: #1c2029;
@@ -59,6 +60,35 @@
     --shadow: none;
     color-scheme: dark;
   }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0e1015;
+  --panel: #161920;
+  --panel-2: #1c2029;
+  --border: #2a2f3a;
+  --border-strong: #3a404d;
+  --text: #e7e9ee;
+  --muted: #9aa2b1;
+  --accent: #818cf8;
+  --accent-soft: #23264a;
+  --accent-text: #c3c8ff;
+  --agent: #8b93fb;
+  --agent-soft: #1d2040;
+  --user: #34d3bf;
+  --user-soft: #12302d;
+  --tool: #f0a24a;
+  --tool-soft: #33260f;
+  --ok: #4ade80;
+  --ok-soft: #10291a;
+  --bad: #f87171;
+  --bad-soft: #351718;
+  --j-key: #c4a1ff;
+  --j-str: #6ee7b7;
+  --j-num: #fbbf6a;
+  --j-lit: #93c5fd;
+  --shadow: none;
+  color-scheme: dark;
 }
 
 * {
@@ -460,6 +490,10 @@ input[type="number"] {
   background: var(--accent);
   color: #fff;
   font-weight: 600;
+}
+.theme-toggle {
+  min-width: 30px;
+  line-height: 1.2;
 }
 .segmented.lang button {
   padding: 3px 9px;

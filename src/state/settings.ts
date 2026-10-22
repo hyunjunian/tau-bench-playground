@@ -16,8 +16,11 @@ export interface BatchSettings {
   trials: number;
 }
 
+export type Theme = "system" | "light" | "dark";
+
 export interface Settings {
   lang: Lang;
+  theme: Theme;
   domain: DomainName;
   split: string;
   taskIndex: number;
@@ -35,6 +38,7 @@ const STORAGE_KEY = "tau-playground.settings.v1";
 export function defaultSettings(): Settings {
   return {
     lang: detectLang(),
+    theme: "system",
     domain: "retail",
     split: "test",
     taskIndex: 0,
@@ -75,6 +79,7 @@ export function sanitize(raw: unknown): Settings {
   if (!Number.isInteger(s.taskIndex) || s.taskIndex < 0) s.taskIndex = 0;
   if (!Number.isInteger(s.maxAgentSteps) || s.maxAgentSteps < 0) s.maxAgentSteps = 30;
   if (s.lang !== "ko" && s.lang !== "en") s.lang = d.lang;
+  if (s.theme !== "light" && s.theme !== "dark") s.theme = "system";
   const keys = typeof s.keys === "object" && s.keys ? s.keys : {};
   s.keys = Object.fromEntries(Object.entries(keys).filter(([p, v]) => p in PROVIDERS && typeof v === "string"));
   if (typeof s.customBaseUrl !== "string") s.customBaseUrl = d.customBaseUrl;

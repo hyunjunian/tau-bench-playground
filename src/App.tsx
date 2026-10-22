@@ -5,12 +5,12 @@ import { Inspector, type InspectorTab, OpenFileButton, type OpenedFile, type Rec
 import { SetupPanel } from "./components/SetupPanel";
 import type { PreferredTool } from "./components/ToolForm";
 import { loadDomain, loadTasks } from "./data/loader";
-import { LangContext, makeT } from "./i18n";
+import { LangContext, type TKey, makeT } from "./i18n";
 import { MissingKeyError } from "./llm/client";
 import { type Endpoint, type ModelConfig, PROVIDERS, type ProviderId } from "./llm/providers";
 import { archiveEpisode, loadArchivedEpisode } from "./state/archive";
 import { type HistoryEntry, useHistory } from "./state/history";
-import { taskFromHash, taskHash, useSettings } from "./state/settings";
+import { type Theme, taskFromHash, taskHash, useSettings } from "./state/settings";
 import { BatchRun, type BatchResult, type BatchState } from "./tau/batch";
 import type { Domain, Task } from "./tau/env";
 import { type Controller, Episode, type EpisodeState, type Role } from "./tau/episode";
@@ -37,6 +37,12 @@ interface RunSpec {
 }
 
 const loaders = { loadDomain, loadTasks };
+
+const THEMES: Record<Theme, { icon: string; label: TKey; next: Theme }> = {
+  system: { icon: "◐", label: "themeSystem", next: "light" },
+  light: { icon: "☀", label: "themeLight", next: "dark" },
+  dark: { icon: "☾", label: "themeDark", next: "system" },
+};
 
 export default function App() {
   const [settings, update] = useSettings();
@@ -68,6 +74,13 @@ export default function App() {
   useEffect(() => {
     document.documentElement.lang = settings.lang;
   }, [settings.lang]);
+
+  // index.html applies a stored theme before the first paint; this keeps it in sync afterwards.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (settings.theme === "system") delete root.dataset.theme;
+    else root.dataset.theme = settings.theme;
+  }, [settings.theme]);
 
   // Batch progress in the tab title, for runs left in a background tab.
   const batchProgress =
@@ -462,6 +475,15 @@ export default function App() {
                 EN
               </button>
             </div>
+            <button
+              type="button"
+              className="btn btn-small theme-toggle"
+              title={t("themeTitle", { theme: t(THEMES[settings.theme].label) })}
+              aria-label={t("themeTitle", { theme: t(THEMES[settings.theme].label) })}
+              onClick={() => update({ theme: THEMES[settings.theme].next })}
+            >
+              {THEMES[settings.theme].icon}
+            </button>
           </nav>
         </header>
 

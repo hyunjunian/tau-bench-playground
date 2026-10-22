@@ -88,5 +88,7 @@ describe("stored settings", () => {
     expect(typeof s.customBaseUrl).toBe("string");
     expect(s.batch).toEqual({ from: 5, to: 9, trials: 1 });
     expect(s.agent.controller).toBe("model");
+    expect(sanitize({ theme: "neon" }).theme).toBe("system");
+    expect(sanitize({ theme: "dark" }).theme).toBe("dark");
   });
 });
