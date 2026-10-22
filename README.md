@@ -103,7 +103,7 @@ npm run build      # dist/ 정적 파일
 API 키 없이 화면을 시험해 보려면 스크립트로 답하는 가짜 엔드포인트를 띄우세요. 모델이 아니라, 에이전트는 정답 행동을 그대로 재생하고 유저는 첫 인사 뒤 답장을 받으면 대화를 끝냅니다.
 
 ```bash
-node scripts/mock-llm.mjs   # http://localhost:8787/v1
+npm run mock   # node scripts/mock-llm.mjs, http://localhost:8787/v1
 ```
 
 두 역할의 제공자를 *Custom (OpenAI-compatible)*, base URL을 `http://localhost:8787/v1`, 모델을 `gt`로 두면 됩니다. `scripted-demo`(가끔 마지막 쓰기를 빼먹음), `flaky`(429), `badargs`(JSON이 아닌 툴 인자), `quota`(일일 한도) 같은 모델로 오류 처리도 볼 수 있습니다(파일 맨 위 설명 참고).
@@ -177,4 +177,4 @@ Beyond single episodes, a **batch run** plays model vs model over a task range w
 
 The default model is **`gemini-3.5-flash-lite` on Google AI Studio's free tier**. It is the highest-scoring free model on OpenRouter's τ²-Bench airline leaderboard (76.9%, Oct 13 2026), with Gemma 4 31B (76.8%) as a near tie. Get a free key at <https://aistudio.google.com/apikey> and paste it into the app; keys stay in your browser. OpenRouter free models, Groq, Cerebras and any OpenAI-compatible endpoint are also supported.
 
-Run locally with `npm install && npm run dev`; `node scripts/mock-llm.mjs` serves a scripted OpenAI-compatible endpoint (it replays the ground truth, it is not a model) for trying the UI without a key. Pushing to `main` deploys to GitHub Pages once Pages' source is set to *GitHub Actions*.
+Run locally with `npm install && npm run dev`; `npm run mock` serves a scripted OpenAI-compatible endpoint (it replays the ground truth, it is not a model) for trying the UI without a key. Pushing to `main` deploys to GitHub Pages once Pages' source is set to *GitHub Actions*.
