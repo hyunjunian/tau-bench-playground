@@ -30,7 +30,7 @@ export interface EpisodeRecord {
   error: string | null;
 }
 
-const END_REASONS: EndReason[] = ["user_stop", "transfer", "max_steps", "manual", "crash", "incomplete"];
+const END_REASONS: EndReason[] = ["user_stop", "transfer", "max_steps", "manual", "crash", "error", "incomplete"];
 const RETAIL_HINTS = ["get_order_details", "find_user_id_by_email", "find_user_id_by_name_zip", "get_product_details"];
 const AIRLINE_HINTS = ["get_reservation_details", "search_direct_flight", "book_reservation", "get_user_details"];
 

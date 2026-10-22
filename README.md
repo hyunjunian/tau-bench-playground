@@ -20,7 +20,7 @@
 | **사람이 에이전트일 때** | 정책(시스템 프롬프트)을 보면서 폼이나 JSON으로 툴을 호출하고 고객에게 답장합니다. 앞선 툴 결과와 고객 메시지에 나온 주문·상품·결제 수단·항공편 ID를 자동완성으로 제안하고(교환할 상품은 주문 품목, 새 상품은 재고 있는 옵션 순), 내가 호출한 툴 결과는 펼쳐서 보여 줍니다. 유저 지시문과 정답은 스포일러로 가려집니다. |
 | **사람이 유저일 때** | 태스크 지시문(목표)을 보면서 고객 역할로 대화하고, `###STOP###` 버튼으로 대화를 끝냅니다. |
 | **채점** | DB 최종 상태가 정답 행동을 재실행한 결과와 같은지(`r_actions`), 필수 정보를 답변에 포함했는지(`r_outputs`)를 봅니다. 어떤 레코드·필드가 달랐는지 diff로 보여 줍니다. |
-| **일괄 실행** | 태스크 범위(예: #0–#19)를 모델 vs 모델로 차례대로, 태스크마다 k번씩 실행합니다(tau-bench의 `--num-trials`와 같은 순서). 평균 reward와 [pass^k](#passk)를 바로 계산하고, 결과 칸을 누르면 그 에피소드를 열어 봅니다. 일시적인 제공자 오류(네트워크, 5xx, 분당 한도)는 최대 3번 자동으로 다시 시도합니다. 결과는 tau-bench 결과 파일과 같은 모양의 JSON으로 내려받습니다. |
+| **일괄 실행** | 태스크 범위(예: #0–#19)를 모델 vs 모델로 차례대로, 태스크마다 k번씩 실행합니다(tau-bench의 `--num-trials`와 같은 순서). 평균 reward와 [pass^k](#passk)를 바로 계산하고, 결과 칸을 누르면 그 에피소드를 열어 봅니다. 일시적인 제공자 오류(네트워크, 5xx, 분당 한도)는 최대 3번 자동으로 다시 시도하고, 쓸 수 없는 모델 출력(JSON이 아닌 툴 인자, 빈 응답)은 원본처럼 reward 0으로 기록하고 넘어갑니다. 결과는 tau-bench 결과 파일과 같은 모양의 JSON으로 내려받습니다. |
 | **다시 보기** | 내려받은 에피소드, 일괄 실행 결과, tau-bench `run.py`의 결과 파일(tool-calling, ReAct, Act 에이전트)을 열거나 페이지에 끌어다 놓으면, 궤적의 툴 호출을 새 DB에서 다시 실행해 대화·DB diff·reward를 다시 만듭니다. 파일에 기록된 관찰값이나 reward와 다르면 표시하고, 파일 전체의 reward를 한 번에 다시 계산해 기록과 비교할 수도 있습니다. 끝난 에피소드는 이 브라우저(IndexedDB)에 저장되어 기록 탭에서 다시 열 수 있습니다. |
 | **편의 기능** | 한 단계씩 실행/일시정지, 429 rate limit 자동 재시도, 기록(평균 reward, 모델별 요약), tau-bench 형식 JSON 내보내기, 태스크 둘러보기(지시문·유저 ID 검색, 지난 결과로 거르기), 태스크 링크(`#retail/test/12`), 데이터 조회, 한국어/영어, 다크 모드 |
 
@@ -84,7 +84,7 @@ Gemini 3.5 Flash-Lite를 고른 이유:
 
 플레이그라운드라서 다르게 둔 부분:
 
-- API 오류, 툴 인자 JSON 오류, 빈 응답이 나오면 원본은 그 실행을 reward 0으로 끝냅니다. 여기서는 멈춘 뒤 **다시 시도**하거나 **종료 후 채점**할 수 있습니다(일괄 실행은 일시적인 제공자 오류만 자동으로 다시 시도하고, 나머지는 사람이 정할 때까지 기다립니다). 빈 인자 문자열 `""`은 `{}`로 처리합니다.
+- API 오류, 툴 인자 JSON 오류, 빈 응답이 나오면 원본은 그 실행을 reward 0으로 끝냅니다. 여기서는 멈춘 뒤 **다시 시도**하거나 **종료 후 채점**할 수 있습니다(일괄 실행은 위에 적은 대로 일시적인 제공자 오류는 다시 시도하고 모델 출력 오류는 reward 0으로 기록합니다. API 키 누락이나 일일 한도 같은 나머지 오류는 사람이 정할 때까지 기다립니다). 빈 인자 문자열 `""`은 `{}`로 처리합니다.
 - temperature 기본값은 제공자 기본값입니다(Gemini 3 권장값 1.0). 논문 설정(에이전트 0.0)을 따르려면 에이전트 temperature를 0으로 두세요.
 - **지금 종료하고 채점** 버튼으로 아무 때나 채점할 수 있습니다. 원본은 유저가 끝내거나 에이전트가 이관할 때만 채점합니다. 최대 행동 수에 닿으면 원본처럼 reward 0입니다.
 - `sum()`은 Python 3.12 이상의 동작(Neumaier 보정 합)을 따릅니다.
@@ -165,7 +165,7 @@ tests/          원본 대비 검증(port-*.test.ts), 대화 루프·다시 보�
 
 An in-browser playground for [τ-bench](https://arxiv.org/abs/2406.12045). Choose, for the **agent** and for the **user** independently, whether a **human** plays the role or a **model** does. Episodes are scored exactly like the benchmark (database end state vs. the ground-truth replay, plus required outputs). The retail and airline databases, tools, policies and tasks come from the original repository. The 30 tools are ported to TypeScript with Python-exact semantics and checked against traces recorded from the Python implementation (`npm test`).
 
-Beyond single episodes, a **batch run** plays model vs model over a task range with k trials per task (tau-bench's `--num-trials` order), reports average reward and pass^k, retries transient provider errors on its own, and downloads the results in tau-bench's results-file shape. **Replay** opens a downloaded episode, a batch results file, or a results file from tau-bench's `run.py` (tool-calling, ReAct or Act agents; drop it on the page): every tool call is re-run on a fresh database to rebuild the transcript, the database diff and the reward, and differences from the recorded observations or reward are flagged (a whole file can be re-scored at once). Finished episodes are kept in IndexedDB so History entries can be reopened. When you play the agent, tool-form fields suggest ids seen earlier in the conversation. A task browser searches instructions and filters by how earlier attempts went, and a URL like `#retail/test/12` links to a task.
+Beyond single episodes, a **batch run** plays model vs model over a task range with k trials per task (tau-bench's `--num-trials` order), reports average reward and pass^k, retries transient provider errors on its own, scores an unusable model output as reward 0 like tau-bench, and downloads the results in tau-bench's results-file shape. **Replay** opens a downloaded episode, a batch results file, or a results file from tau-bench's `run.py` (tool-calling, ReAct or Act agents; drop it on the page): every tool call is re-run on a fresh database to rebuild the transcript, the database diff and the reward, and differences from the recorded observations or reward are flagged (a whole file can be re-scored at once). Finished episodes are kept in IndexedDB so History entries can be reopened. When you play the agent, tool-form fields suggest ids seen earlier in the conversation. A task browser searches instructions and filters by how earlier attempts went, and a URL like `#retail/test/12` links to a task.
 
 The default model is **`gemini-3.5-flash-lite` on Google AI Studio's free tier**. It is the highest-scoring free model on OpenRouter's τ²-Bench airline leaderboard (76.9%, Oct 13 2026), with Gemma 4 31B (76.8%) as a near tie. Get a free key at <https://aistudio.google.com/apikey> and paste it into the app; keys stay in your browser. OpenRouter free models, Groq, Cerebras and any OpenAI-compatible endpoint are also supported.
 

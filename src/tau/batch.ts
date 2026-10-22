@@ -172,7 +172,10 @@ export class BatchRun {
   private watch(episode: Episode) {
     if (episode !== this.episode) return;
     const error = episode.getState().error;
-    if (!error || !error.retryable || this.retryTimer || this.state.status !== "running") return;
+    if (!error || this.retryTimer || this.state.status !== "running") return;
+    // A bad model output counts as a failed run, as in tau-bench, so the batch moves on.
+    if (error.modelError) return episode.failOnError();
+    if (!error.retryable) return;
     if (this.attempts >= MAX_AUTO_RETRIES) return;
     this.attempts++;
     const delay = this.retryMs * this.attempts;

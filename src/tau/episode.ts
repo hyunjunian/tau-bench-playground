@@ -73,8 +73,11 @@ export type Item =
 
 type NewItem = Item extends infer T ? (T extends Item ? Omit<T, "id"> : never) : never;
 
-/** `incomplete`: a replayed trajectory that stops without a reason (no ###STOP###, transfer or step limit). */
-export type EndReason = "user_stop" | "transfer" | "max_steps" | "manual" | "crash" | "incomplete";
+/**
+ * `error`: given up after an unusable model output (tau-bench records reward 0 when its run raises).
+ * `incomplete`: a replayed trajectory that stops without a reason (no ###STOP###, transfer or step limit).
+ */
+export type EndReason = "user_stop" | "transfer" | "max_steps" | "manual" | "crash" | "error" | "incomplete";
 
 export interface EpisodeResult {
   reason: EndReason;
@@ -92,9 +95,10 @@ export interface EpisodeState {
   retry: { until: number; reason: string } | null;
   /**
    * `retryable`: a transient provider problem (network, 5xx, rate limit) rather than a bad model output or setting.
+   * `modelError`: the model answered, but with something unusable (tool arguments that are not JSON, an empty message).
    * `missingKey`: the provider whose API key has to be entered first.
    */
-  error: { role: Role; message: string; retryable: boolean; missingKey?: ProviderId } | null;
+  error: { role: Role; message: string; retryable: boolean; modelError: boolean; missingKey?: ProviderId } | null;
   paused: boolean;
   agentSteps: number;
   done: EpisodeResult | null;
@@ -255,6 +259,14 @@ export class Episode {
     void this.pump();
   }
 
+  /** Give up on the error like tau-bench does when a run raises: the episode ends with reward 0. */
+  failOnError() {
+    const error = this.state.error;
+    if (!error || this.state.done) return;
+    this.update({ error: null });
+    this.finish("error", error.message);
+  }
+
   /** End the conversation now and score the current database state. */
   endNow() {
     if (this.state.done) return;
@@ -369,7 +381,8 @@ export class Episode {
     }
     const message = e instanceof LlmError || e instanceof StepError || e instanceof Error ? e.message : String(e);
     const missingKey = e instanceof MissingKeyError ? e.provider : undefined;
-    this.update({ error: { role, message, retryable: e instanceof LlmError && e.retryable, missingKey } });
+    const retryable = e instanceof LlmError && e.retryable;
+    this.update({ error: { role, message, retryable, modelError: e instanceof StepError, missingKey } });
     return false;
   }
 
@@ -495,7 +508,7 @@ export class Episode {
   private finish(reason: EndReason, message?: string) {
     if (this.state.done) return;
     const info = reason === "crash" ? null : this.env.calculateReward();
-    const reward = reason === "crash" || reason === "max_steps" ? 0 : (info?.reward ?? 0);
+    const reward = reason === "crash" || reason === "max_steps" || reason === "error" ? 0 : (info?.reward ?? 0);
     this.finishedAt = new Date();
     this.update({ done: { reason, reward, info, message }, turn: null, busy: false, retry: null });
     this.setup.onFinish?.(this);

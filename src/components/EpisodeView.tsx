@@ -80,6 +80,7 @@ function ResultBanner({
     transfer: t("doneTransfer"),
     max_steps: t("doneMaxSteps"),
     manual: t("doneManual"),
+    error: t("doneError"),
     incomplete: t("doneIncomplete"),
     crash: t("doneCrash"),
   }[done.reason];

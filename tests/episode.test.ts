@@ -48,6 +48,21 @@ function fakeProvider(taskFor: (messages: ChatMessage[]) => Task) {
   });
 }
 
+/** The agent always calls a tool with arguments that are not JSON. */
+function brokenAgentProvider() {
+  return vi.fn(async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body)) as { tools?: unknown };
+    const message = body.tools
+      ? {
+          role: "assistant",
+          content: null,
+          tool_calls: [{ id: "x", type: "function", function: { name: "get_order_details", arguments: "{oops" } }],
+        }
+      : { role: "assistant", content: "Hello" };
+    return new Response(JSON.stringify({ choices: [{ message }] }), { status: 200 });
+  });
+}
+
 function setupFor(domain: Domain, task: Task, index: number, extra: Partial<EpisodeSetup> = {}): EpisodeSetup {
   return {
     domain,
@@ -176,27 +191,25 @@ describe("Episode with model players", () => {
   it("pauses on an unparsable tool call instead of guessing", async () => {
     const domain = domains.retail;
     const task = tasksFor("retail", "test")[0];
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_url: string, init: RequestInit) => {
-        const body = JSON.parse(String(init.body)) as { tools?: unknown };
-        const message = body.tools
-          ? {
-              role: "assistant",
-              content: null,
-              tool_calls: [{ id: "x", type: "function", function: { name: "get_order_details", arguments: "{oops" } }],
-            }
-          : { role: "assistant", content: "Hello" };
-        return new Response(JSON.stringify({ choices: [{ message }] }), { status: 200 });
-      }),
-    );
+    vi.stubGlobal("fetch", brokenAgentProvider());
     const ep = new Episode(setupFor(domain, task, 0));
     ep.start();
     await untilSettled(ep);
-    expect(ep.getState().error?.role).toBe("agent");
+    expect(ep.getState().error).toMatchObject({ role: "agent", modelError: true, retryable: false });
     expect(ep.getState().done).toBeNull();
     ep.endNow();
     expect(ep.getState().done?.reason).toBe("manual");
+  });
+
+  it("can give up on an error with reward 0, like a tau-bench run that raises", async () => {
+    vi.stubGlobal("fetch", brokenAgentProvider());
+    const ep = new Episode(setupFor(domains.retail, tasksFor("retail", "test")[0], 0));
+    ep.start();
+    await untilSettled(ep);
+    ep.failOnError();
+    expect(ep.getState().error).toBeNull();
+    expect(ep.getState().done).toMatchObject({ reason: "error", reward: 0 });
+    expect(ep.getState().done?.message).toContain("not a JSON object");
   });
 });
 
@@ -422,6 +435,27 @@ describe("BatchRun", () => {
     fail(false);
     await new Promise((r) => setTimeout(r, 15));
     expect(retries).toBe(0);
+  });
+
+  it("scores an unusable model output as a failed run and moves on", async () => {
+    vi.stubGlobal("fetch", brokenAgentProvider());
+    const list = tasksFor("retail", "test");
+    const batch = new BatchRun(
+      { domain: "retail", split: "test", indices: [0, 1], trials: 1 },
+      (run, onFinish) => {
+        const ep = new Episode(setupFor(domains.retail, list[run.index], run.index, { onFinish }));
+        ep.start();
+        return ep;
+      },
+      { gapMs: 0 },
+    );
+    const finished = new Promise<void>((resolve) => batch.subscribe(() => batch.getState().status === "done" && resolve()));
+    batch.start();
+    await finished;
+    expect(batch.getState().results.map((r) => [r.reason, r.reward])).toEqual([
+      ["error", 0],
+      ["error", 0],
+    ]);
   });
 
   it("puts a detached run back in the queue", () => {
