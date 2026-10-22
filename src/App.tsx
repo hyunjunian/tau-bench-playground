@@ -411,13 +411,23 @@ export default function App() {
       window.alert(t("openFailed", { error: `${url}: ${e instanceof Error ? e.message : String(e)}` }));
       return;
     }
-    openText(text, decodeURIComponent(new URL(url, location.href).pathname.split("/").pop() || url));
+    const name = new URL(url, location.href).pathname.split("/").pop() || url;
+    let decoded = name;
+    try {
+      decoded = decodeURIComponent(name);
+    } catch {
+      // a stray "%" in the name: show it as is
+    }
+    openText(text, decoded);
   };
 
   // ?file=<url> opens that file on load, so a results file can be shared as a link.
   const openUrlRef = useRef(openUrl);
   openUrlRef.current = openUrl;
+  const fileParamRead = useRef(false);
   useEffect(() => {
+    if (fileParamRead.current) return; // StrictMode runs mount effects twice in development
+    fileParamRead.current = true;
     const url = new URLSearchParams(location.search).get("file");
     if (url) void openUrlRef.current(url);
   }, []);
