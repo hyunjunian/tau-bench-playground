@@ -200,6 +200,15 @@ export default function App() {
     archiveEpisode(id, JSON.stringify(trial === undefined ? finished.toJSON() : { ...finished.toJSON(), trial })).catch(() => {});
   };
 
+  // A file being downloaded from a URL (see openUrl). Whatever the user does next wins over it.
+  const [downloading, setDownloading] = useState(false);
+  const pendingDownload = useRef<AbortController | null>(null);
+  const cancelDownload = () => {
+    pendingDownload.current?.abort();
+    pendingDownload.current = null;
+    setDownloading(false);
+  };
+
   /** Create and start an episode; `controllers` defaults to the current settings. */
   const launch = (
     spec: RunSpec,
@@ -212,6 +221,7 @@ export default function App() {
     } = {},
   ): Episode => {
     const s = settingsRef.current;
+    cancelDownload();
     setFileParam(null); // reloading should show this episode's task, not reopen the file
     const ep = new Episode({
       domain: spec.domain,
@@ -427,24 +437,30 @@ export default function App() {
       window.alert(t("openFailed", { error: `${file.name}: ${e instanceof Error ? e.message : String(e)}` }));
       return;
     }
+    cancelDownload();
     setFileParam(null);
     openText(text, file.name);
   };
 
   /** A saved file on the web (it must allow cross-origin reads, as raw.githubusercontent.com does). */
-  const [downloading, setDownloading] = useState<string | null>(null);
   const openUrl = async (url: string) => {
+    cancelDownload();
+    const request = new AbortController();
+    pendingDownload.current = request;
+    setDownloading(true);
     let text: string;
-    setDownloading(url);
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, { signal: request.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       text = await res.text();
     } catch (e) {
-      window.alert(t("openFailed", { error: `${url}: ${e instanceof Error ? e.message : String(e)}` }));
+      if (!request.signal.aborted) window.alert(t("openFailed", { error: `${url}: ${e instanceof Error ? e.message : String(e)}` }));
       return;
     } finally {
-      setDownloading((d) => (d === url ? null : d));
+      if (pendingDownload.current === request) {
+        pendingDownload.current = null;
+        setDownloading(false);
+      }
     }
     const name = new URL(url, location.href).pathname.split("/").pop() || url;
     let decoded = name;
@@ -641,7 +657,7 @@ export default function App() {
                   {t("welcomeOpen")} <OpenFileButton onOpen={(f) => void openFile(f)} />
                 </p>
                 <p className="welcome-samples muted">
-                  {t("welcomeSamples")} <SampleRunLinks onOpenUrl={(u) => void openUrl(u)} downloading={downloading !== null} />
+                  {t("welcomeSamples")} <SampleRunLinks onOpenUrl={(u) => void openUrl(u)} downloading={downloading} />
                 </p>
               </div>
             )}
@@ -664,7 +680,7 @@ export default function App() {
               opened={opened}
               onOpenFile={(f) => void openFile(f)}
               onOpenUrl={(u) => void openUrl(u)}
-              downloading={downloading !== null}
+              downloading={downloading}
               onOpenRecord={(r) => void openRecord(r, `${opened?.name ?? ""} · ${r.position + 1}`)}
               onCloseFile={() => {
                 setOpened(null);
