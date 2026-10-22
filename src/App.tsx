@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { BatchCard } from "./components/BatchCard";
-import type { PreferredTool } from "./components/ToolForm";
 import { EpisodeView } from "./components/EpisodeView";
 import { Inspector, type InspectorTab, OpenFileButton, type OpenedFile, type Recomputed } from "./components/Inspector";
 import { SetupPanel } from "./components/SetupPanel";
+import type { PreferredTool } from "./components/ToolForm";
 import { loadDomain, loadTasks } from "./data/loader";
 import { LangContext, makeT } from "./i18n";
 import { MissingKeyError } from "./llm/client";
