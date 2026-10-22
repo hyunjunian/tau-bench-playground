@@ -567,7 +567,7 @@ const ko: Dict = {
 export type TKey = keyof typeof en;
 export type TFunction = (key: TKey, vars?: Record<string, string | number>) => string;
 
-const STRINGS: Record<Lang, Dict> = { en, ko };
+export const STRINGS: Record<Lang, Dict> = { en, ko };
 
 export function makeT(lang: Lang): TFunction {
   return (key, vars) => {

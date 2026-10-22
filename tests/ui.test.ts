@@ -1,6 +1,6 @@
 /** Helpers behind the UI: tool-form suggestions, task links and stored-settings cleanup. */
 import { describe, expect, it } from "vitest";
-import { makeT } from "../src/i18n";
+import { STRINGS, type TKey, makeT } from "../src/i18n";
 import { sanitize, taskFromHash, taskHash } from "../src/state/settings";
 import { parseTasks } from "../src/tau/env";
 import { PyDict } from "../src/tau/py";
@@ -131,6 +131,11 @@ describe("translations", () => {
   it("inserts values literally, even ones that look like replacement patterns", () => {
     const text = makeT("en")("replayObsDiffers", { name: "get_x", recorded: "costs $$5 and $' and $& and {name}" });
     expect(text).toContain("costs $$5 and $' and $& and");
+  });
+
+  it("uses the same placeholders in every language", () => {
+    const vars = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+    for (const key of Object.keys(STRINGS.en) as TKey[]) expect(vars(STRINGS.ko[key]), key).toEqual(vars(STRINGS.en[key]));
   });
 });
 
