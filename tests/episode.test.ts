@@ -349,6 +349,50 @@ describe("replaying saved episodes", () => {
     expect(ep.getState().agentSteps).toBe(2);
   });
 
+  it("treats a tool-calling reply that mentions Action: as a reply, not a ReAct tool call", async () => {
+    const action = `Action: {"name": "cancel_pending_order", "arguments": {"order_id": "#W2378156", "reason": "no longer needed"}}`;
+    const traj = [
+      { role: "system", content: domains.retail.wiki },
+      { role: "user", content: "Hi" },
+      { role: "assistant", content: `I would do this:\n${action}` },
+      { role: "user", content: "###STOP###" },
+    ];
+    const [parsed] = parseRecordsFile(JSON.stringify([{ task_id: 0, reward: 0.0, info: {}, traj, trial: 0 }]));
+    const ep = await replayRecord(parsed, loaders);
+    expect(ep.getState().done?.reason).toBe("user_stop");
+    expect(ep.env.actions.map((a) => a.name)).toEqual(["respond"]);
+    expect(ep.getState().items.some((i) => i.kind === "tool")).toBe(false);
+  });
+
+  it("replays an exported crash as a crash", async () => {
+    const domain = domains.airline;
+    const task = tasksFor("airline", "test")[0];
+    // the agent keeps sending certificates; the 4th has no free slot and the Python tool returns None
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        const body = JSON.parse(String(init.body)) as { tools?: unknown };
+        const args = JSON.stringify({ user_id: task.user_id, amount: 100 });
+        const message = body.tools
+          ? {
+              role: "assistant",
+              content: null,
+              tool_calls: [{ id: "c", type: "function", function: { name: "send_certificate", arguments: args } }],
+            }
+          : { role: "assistant", content: "Hi, I need some help." };
+        return new Response(JSON.stringify({ choices: [{ message }] }), { status: 200 });
+      }),
+    );
+    const live = new Episode(setupFor(domain, task, 0));
+    live.start();
+    await untilSettled(live);
+    expect(live.getState().done).toMatchObject({ reason: "crash", reward: 0 });
+    const [record] = parseRecordsFile(JSON.stringify(live.toJSON()));
+    const replay = await replayRecord(record, loaders);
+    expect(replay.getState().done).toMatchObject({ reason: "crash", reward: 0 });
+    expect(replay.getState().agentSteps).toBe(4);
+  });
+
   it("reports runs that crashed in tau-bench", async () => {
     const [parsed] = parseRecordsFile(JSON.stringify([{ task_id: 3, reward: 0.0, info: { error: "boom" }, traj: [], trial: 0 }]));
     await expect(resolveRecord(parsed, loaders)).rejects.toThrow("boom");
@@ -456,6 +500,78 @@ describe("BatchRun", () => {
       ["error", 0],
       ["error", 0],
     ]);
+  });
+
+  it("never records an episode it let go of", () => {
+    const launched: { index: number; end: () => void }[] = [];
+    const batch = new BatchRun(
+      { domain: "retail", split: "test", indices: [0, 1], trials: 1 },
+      (run, onFinish) => {
+        let done: { reward: number; reason: string } | null = null;
+        const ep = {
+          abort() {},
+          resume() {},
+          subscribe: () => () => {},
+          getState: () => ({ done, error: null, agentSteps: 1 }),
+          toJSON: () => ({ task_id: run.index }),
+        } as unknown as Episode;
+        const end = () => {
+          done = { reward: 1, reason: "user_stop" };
+          onFinish(ep);
+        };
+        launched.push({ index: run.index, end });
+        return ep;
+      },
+      { gapMs: 0 },
+    );
+    batch.start();
+    batch.detach(); // e.g. the user opened something else
+    batch.resume(); // the same run starts again
+    expect(launched.map((l) => l.index)).toEqual([0, 0]);
+    launched[0].end(); // the abandoned episode finishes late
+    expect(batch.getState().results).toEqual([]);
+    expect(batch.getState().current).toEqual({ index: 0, trial: 0 });
+    launched[1].end();
+    expect(batch.getState().results.map((r) => r.index)).toEqual([0]);
+  });
+
+  it("does not stack an automatic retry on Resume or on a manual Retry", async () => {
+    const listeners = new Set<() => void>();
+    let state: { done: null; error: { message: string; retryable: boolean; modelError: boolean } | null; paused: boolean } = {
+      done: null,
+      error: null,
+      paused: false,
+    };
+    const set = (patch: Partial<typeof state>) => {
+      state = { ...state, ...patch };
+      listeners.forEach((l) => l());
+    };
+    let retries = 0;
+    const fake = {
+      subscribe: (l: () => void) => (listeners.add(l), () => listeners.delete(l)),
+      getState: () => state,
+      retry: () => {
+        retries++;
+        set({ error: null });
+      },
+      resume: () => set({ paused: false }),
+      abort: () => set({ paused: true }),
+    } as unknown as Episode;
+    const batch = new BatchRun({ domain: "retail", split: "test", indices: [0], trials: 1 }, () => fake, { retryMs: 20 });
+    batch.start();
+    batch.stop();
+    set({ error: { message: "HTTP 503", retryable: true, modelError: false } });
+    batch.resume();
+    expect(retries).toBe(1);
+    expect(batch.getState().autoRetry).toBeNull();
+
+    // a pending automatic retry is dropped when the user retries first
+    set({ error: { message: "HTTP 503", retryable: true, modelError: false } });
+    expect(batch.getState().autoRetry).not.toBeNull();
+    fake.retry();
+    expect(batch.getState().autoRetry).toBeNull();
+    await new Promise((r) => setTimeout(r, 40));
+    expect(retries).toBe(2);
   });
 
   it("puts a detached run back in the queue", () => {

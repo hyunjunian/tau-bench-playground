@@ -125,23 +125,26 @@ export class BatchRun {
     const ep = this.episode;
     if (ep && !ep.getState().done) {
       this.attempts = 0;
-      ep.resume(); // stop() paused it
+      // Clear the error before un-pausing, so watch() does not also schedule an automatic retry.
       if (ep.getState().error) ep.retry();
+      ep.resume(); // stop() paused it
     } else this.next();
   }
 
-  /** Forget the episode in flight without recording it (the user replaced it). */
+  /** Let go of the episode in flight without recording it (the user replaced it); its run goes back in the queue. */
   detach() {
     this.scheduled++;
     this.cancelRetry();
     this.unwatch?.();
     this.unwatch = null;
+    this.episode?.abort();
     this.episode = null;
     const current = this.state.current;
     this.update({
       status: this.state.status === "done" ? "done" : "stopped",
       current: null,
-      pending: current ? [current, ...this.state.pending] : this.state.pending,
+      // A fresh object: a late finish of the detached episode must not count for the rerun.
+      pending: current ? [{ ...current }, ...this.state.pending] : this.state.pending,
     });
   }
 
@@ -173,18 +176,25 @@ export class BatchRun {
   private watch(episode: Episode) {
     if (episode !== this.episode) return;
     const error = episode.getState().error;
-    if (!error || this.retryTimer || this.state.status !== "running") return;
+    if (!error) {
+      // Someone pressed Retry before our timer did.
+      if (this.retryTimer) this.cancelRetry();
+      return;
+    }
+    if (this.retryTimer || this.state.status !== "running") return;
     // A bad model output counts as a failed run, as in tau-bench, so the batch moves on.
     if (error.modelError) return episode.failOnError();
-    if (!error.retryable) return;
-    if (this.attempts >= MAX_AUTO_RETRIES) return;
+    if (!error.retryable || this.attempts >= MAX_AUTO_RETRIES) return;
     this.attempts++;
     const delay = this.retryMs * this.attempts;
     this.update({ autoRetry: { at: Date.now() + delay, attempt: this.attempts } });
     this.retryTimer = setTimeout(() => {
       this.retryTimer = null;
       this.update({ autoRetry: null });
-      if (episode === this.episode && this.state.status === "running") episode.retry();
+      if (episode !== this.episode || this.state.status !== "running") return;
+      const now = episode.getState().error;
+      if (now?.modelError) episode.failOnError();
+      else if (now?.retryable) episode.retry();
     }, delay);
   }
 
@@ -195,8 +205,8 @@ export class BatchRun {
   }
 
   private finished(episode: Episode, run: BatchRunRef) {
-    // Runs are matched by identity, so a detached or replaced run is never recorded.
-    if (this.state.current !== run) return;
+    // Matched by identity, so an episode the batch let go of is never recorded.
+    if (this.state.current !== run || episode !== this.episode) return;
     const s = episode.getState();
     if (!s.done) return;
     const record = { ...episode.toJSON(), trial: run.trial };

@@ -45,6 +45,8 @@ export default function App() {
 
   const [domain, setDomain] = useState<Domain | null>(null);
   const [tasks, setTasks] = useState<Task[] | null>(null);
+  /** "<domain>/<split>" of `tasks` (they lag behind the settings while a new split loads). */
+  const [tasksKey, setTasksKey] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -98,8 +100,7 @@ export default function App() {
         if (!alive) return;
         setDomain(d);
         setTasks(ts);
-        // e.g. a link to #retail/test/999
-        update((s) => (s.taskIndex >= ts.length ? { ...s, taskIndex: Math.max(0, ts.length - 1) } : s));
+        setTasksKey(`${d.name}/${settings.split}`);
       })
       .catch((e: unknown) => alive && setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => alive && setLoading(false));
@@ -126,8 +127,14 @@ export default function App() {
     [endpointFor],
   );
 
-  const taskCount = tasks && domain?.name === settings.domain ? tasks.length : null;
-  const task = tasks && domain?.name === settings.domain ? (tasks[Math.min(settings.taskIndex, tasks.length - 1)] ?? null) : null;
+  const tasksReady = !!tasks && tasksKey === `${settings.domain}/${settings.split}`;
+  const taskCount = tasksReady ? tasks.length : null;
+  const task = tasksReady ? (tasks[Math.min(settings.taskIndex, tasks.length - 1)] ?? null) : null;
+
+  // Keep the selection inside the split, e.g. after following a link to #retail/test/999.
+  useEffect(() => {
+    if (taskCount !== null && settings.taskIndex >= taskCount) update({ taskIndex: Math.max(0, taskCount - 1) });
+  }, [taskCount, settings.taskIndex, update]);
 
   const describeRole = (ep: Episode, role: Role) =>
     ep.controllerOf(role) === "human" ? "human" : ep.modelsUsed(role).join(", ") || settingsRef.current[role].model.model;
@@ -187,23 +194,49 @@ export default function App() {
     return ep;
   };
 
-  /** Ask before throwing away an episode in progress or a running batch; the batch lets go of its episode. */
+  // Handlers that run after an await read these, not the values captured when they started.
+  const episodeRef = useRef(episode);
+  episodeRef.current = episode;
+  const batchRef = useRef(batch);
+  batchRef.current = batch;
+
+  const inProgress = (ep: Episode | null) => {
+    const s = ep?.getState();
+    return !!s && !s.done && s.items.length > 1;
+  };
+
+  /**
+   * Ask before throwing away an episode in progress or a running batch. On yes the batch lets go of
+   * its episode and the episode on screen is stopped.
+   */
   const confirmReplace = (): boolean => {
-    if (batchState?.status === "running") {
+    const b = batchRef.current;
+    if (b?.getState().status === "running") {
       if (!window.confirm(t("confirmStopBatch"))) return false;
-    } else {
-      const current = episode?.getState();
-      if (current && !current.done && current.items.length > 1 && !window.confirm(t("confirmNew"))) return false;
+    } else if (inProgress(episodeRef.current) && !window.confirm(t("confirmNew"))) {
+      return false;
     }
-    batch?.detach();
+    b?.detach();
+    episodeRef.current?.abort();
     return true;
   };
 
   const replaceWith = (spec: RunSpec): boolean => {
     if (!confirmReplace()) return false;
-    episode?.abort();
     launch(spec);
     return true;
+  };
+
+  /** Resuming a batch shows its episode again, so whatever is on screen gets the same question. */
+  const resumeBatch = () => {
+    const b = batchRef.current;
+    if (!b) return;
+    const shown = episodeRef.current;
+    if (shown !== b.currentEpisode) {
+      if (inProgress(shown) && !window.confirm(t("confirmNew"))) return;
+      shown?.abort();
+    }
+    b.resume();
   };
 
   const startFromSettings = () => {
@@ -235,9 +268,8 @@ export default function App() {
   };
 
   const startBatch = () => {
-    if (!domain || !tasks || tasks.length === 0) return;
+    if (!domain || !tasks || !tasksReady || tasks.length === 0) return;
     if (!confirmReplace()) return;
-    episode?.abort();
     const b = settings.batch;
     const from = Math.min(b.from, tasks.length - 1);
     const to = Math.min(Math.max(b.to, from), tasks.length - 1);
@@ -274,20 +306,21 @@ export default function App() {
 
   /** Rebuild a saved episode and show it (read-only, already scored). */
   const openRecord = async (rec: EpisodeRecord, label: string) => {
-    if (!confirmReplace()) return false;
+    let ep: Episode;
     try {
-      const ep = await replayRecord(rec, loaders, label);
-      episode?.abort();
-      const ref = ep.setup.taskRef;
-      if (ref.split !== "file") update({ domain: ref.domain, split: ref.split, taskIndex: ref.index });
-      setPreferredTool(null);
-      setEpisode(ep);
-      setTab("result");
-      return true;
+      ep = await replayRecord(rec, loaders, label);
     } catch (e) {
       window.alert(t("openFailed", { error: e instanceof Error ? e.message : String(e) }));
       return false;
     }
+    // Only now that the replay worked, ask about what is on screen.
+    if (!confirmReplace()) return false;
+    const ref = ep.setup.taskRef;
+    if (ref.split !== "file") update({ domain: ref.domain, split: ref.split, taskIndex: ref.index });
+    setPreferredTool(null);
+    setEpisode(ep);
+    setTab("result");
+    return true;
   };
 
   const openedRef = useRef(opened);
@@ -438,7 +471,7 @@ export default function App() {
                 state={batchState}
                 waitingOnError={batchState.status === "running" && !!state?.error && episode === batch?.currentEpisode}
                 onStop={() => batch?.stop()}
-                onResume={() => batch?.resume()}
+                onResume={resumeBatch}
                 onClose={closeBatch}
                 onDownload={downloadBatch}
                 onOpen={openBatchResult}

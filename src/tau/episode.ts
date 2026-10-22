@@ -489,6 +489,8 @@ export class Episode {
       ({ observation, done } = this.env.stepTool({ name, kwargs }));
     } catch (e) {
       if (e instanceof EnvCrash) {
+        // Keep the call in the conversation, so an export replays into the same crash.
+        this.agentMessages.push(message);
         this.update({ agentSteps: step });
         this.push({ kind: "tool", by, step, name, args, observation: "None", error: true, note, meta });
         this.finish("crash", e.message);
@@ -536,7 +538,12 @@ export class Episode {
     const meta = (role: Role, m?: ChatMessage): GenMeta | undefined =>
       by(role) === "model" ? { model: source.models?.[role] ?? "?", reasoning: m && reasoningOf(m) } : undefined;
     const msgs = source.traj;
-    const react = !msgs.some((m) => m.tool_calls?.length) && msgs.some((m) => m.role === "assistant" && /Action:/.test(messageText(m.content)));
+    // tau-bench's ReAct/Act agents list the tools in the system prompt and answer tool calls with "API output: ...".
+    // A tool-calling model that merely writes "Action:" in a reply is still replying to the user.
+    const system = messageText(msgs.find((m) => m.role === "system")?.content);
+    const react =
+      !msgs.some((m) => m.tool_calls?.length) &&
+      (system.includes("\n#Available tools\n") || msgs.some((m) => m.role === "user" && messageText(m.content).startsWith("API output: ")));
     const flagDifference = (name: string, recorded: string, actual: string | null) => {
       if (actual !== null && recorded !== actual) {
         const vars = { name, recorded: recorded.slice(0, 200) };
@@ -595,9 +602,8 @@ export class Episode {
       if (recorded !== null) flagDifference(call.function.name, recorded, obs);
     }
     if (!ep.state.done) {
-      const reason =
-        source.endReason && source.endReason !== "crash" ? source.endReason : ep.stepLimitReached() ? "max_steps" : "incomplete";
-      ep.finish(reason);
+      // A recorded crash (an export from before crashing calls were kept) still scores 0.
+      ep.finish(source.endReason ?? (ep.stepLimitReached() ? "max_steps" : "incomplete"));
     }
     const done = ep.state.done;
     const recorded = source.recordedReward;
