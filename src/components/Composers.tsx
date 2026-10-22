@@ -171,9 +171,26 @@ export function AgentComposer({
         </p>
       )}
       {tab === "reply" ? (
-        <MessageBox placeholder={t("replyPlaceholder")} onSend={onReply} draft={replyDraft} />
+        <MessageBox
+          placeholder={t("replyPlaceholder")}
+          draft={replyDraft}
+          onSend={(text) => {
+            setReplyDraft(null); // used up: switching tabs must not bring it back
+            onReply(text);
+          }}
+        />
       ) : (
-        <ToolForm tools={tools} preferred={preferredTool} draft={toolDraft} suggestions={suggestions} onRun={onTool} />
+        <ToolForm
+          tools={tools}
+          preferred={preferredTool}
+          draft={toolDraft}
+          suggestions={suggestions}
+          onRun={(name, kwargs) => {
+            setToolDraft(null);
+            setNote(null);
+            onTool(name, kwargs);
+          }}
+        />
       )}
     </div>
   );
