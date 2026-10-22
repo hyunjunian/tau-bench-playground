@@ -603,6 +603,14 @@ export class Episode {
     }
     if (!ep.state.done) {
       // A recorded crash (an export from before crashing calls were kept) still scores 0.
+      if (source.endReason === "crash") {
+        ep.push({
+          kind: "notice",
+          level: "warn",
+          text: "The file says this run crashed, but the saved trajectory stops before the crash; it is scored 0 as recorded.",
+          code: "replayCrashRecorded",
+        });
+      }
       ep.finish(source.endReason ?? (ep.stepLimitReached() ? "max_steps" : "incomplete"));
     }
     const done = ep.state.done;

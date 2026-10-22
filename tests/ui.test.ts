@@ -1,5 +1,6 @@
 /** Helpers behind the UI: tool-form suggestions, task links and stored-settings cleanup. */
 import { describe, expect, it } from "vitest";
+import { makeT } from "../src/i18n";
 import { sanitize, taskFromHash, taskHash } from "../src/state/settings";
 import { parseTasks } from "../src/tau/env";
 import { PyDict } from "../src/tau/py";
@@ -55,6 +56,13 @@ describe("tool-form suggestions", () => {
   it("ignores error observations and maps payment aliases", () => {
     expect(suggestionsFor(all, "order_id")).not.toContain("#nope");
     expect(suggestionsFor(all, "payment_id")).toEqual(suggestionsFor(all, "payment_method_id"));
+  });
+});
+
+describe("translations", () => {
+  it("inserts values literally, even ones that look like replacement patterns", () => {
+    const text = makeT("en")("replayObsDiffers", { name: "get_x", recorded: "costs $$5 and $' and $& and {name}" });
+    expect(text).toContain("costs $$5 and $' and $& and");
   });
 });
 

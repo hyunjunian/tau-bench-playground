@@ -391,6 +391,18 @@ describe("replaying saved episodes", () => {
     const replay = await replayRecord(record, loaders);
     expect(replay.getState().done).toMatchObject({ reason: "crash", reward: 0 });
     expect(replay.getState().agentSteps).toBe(4);
+    expect(replay.getState().items.some((i) => i.kind === "notice")).toBe(false);
+
+    // an export that lacks the crashing call (made before it was kept) still scores 0, with a notice
+    record.traj = record.traj.slice(0, -1);
+    const old = await replayRecord(record, loaders);
+    expect(old.getState().done).toMatchObject({ reason: "crash", reward: 0 });
+    expect(
+      old
+        .getState()
+        .items.filter((i) => i.kind === "notice")
+        .map((i) => (i as { code?: string }).code),
+    ).toEqual(["replayCrashRecorded"]);
   });
 
   it("reports runs that crashed in tau-bench", async () => {
@@ -572,6 +584,33 @@ describe("BatchRun", () => {
     expect(batch.getState().autoRetry).toBeNull();
     await new Promise((r) => setTimeout(r, 40));
     expect(retries).toBe(2);
+  });
+
+  it("scores a model error raised while stopped when resumed, and can detach without stopping the episode", () => {
+    let state: { done: null | { reward: number; reason: string }; error: { modelError: boolean; retryable: boolean } | null } = {
+      done: null,
+      error: null,
+    };
+    const calls: string[] = [];
+    const fake = {
+      subscribe: () => () => {},
+      getState: () => state,
+      retry: () => calls.push("retry"),
+      resume: () => calls.push("resume"),
+      abort: () => calls.push("abort"),
+      failOnError: () => calls.push("failOnError"),
+    } as unknown as Episode;
+    const batch = new BatchRun({ domain: "retail", split: "test", indices: [0, 1], trials: 1 }, () => fake, { gapMs: 0 });
+    batch.start();
+    batch.stop();
+    state = { ...state, error: { modelError: true, retryable: false } };
+    batch.resume();
+    expect(calls).toEqual(["abort", "failOnError"]);
+
+    calls.length = 0;
+    batch.stop();
+    batch.detach({ abort: false });
+    expect(calls).toEqual(["abort"]); // from stop(); detaching itself left the episode alone
   });
 
   it("puts a detached run back in the queue", () => {

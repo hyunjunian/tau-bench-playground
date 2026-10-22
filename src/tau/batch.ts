@@ -131,19 +131,25 @@ export class BatchRun {
     const ep = this.episode;
     if (ep && !ep.getState().done) {
       this.attempts = 0;
+      const error = ep.getState().error;
+      // An unusable model output counts as a failed run, as when the batch is running.
+      if (error?.modelError) return ep.failOnError();
       // Clear the error before un-pausing, so watch() does not also schedule an automatic retry.
-      if (ep.getState().error) ep.retry();
+      if (error) ep.retry();
       ep.resume(); // stop() paused it
     } else this.next();
   }
 
-  /** Let go of the episode in flight without recording it (the user replaced it); its run goes back in the queue. */
-  detach() {
+  /**
+   * Let go of the episode in flight without recording it; its run goes back in the queue. The episode is
+   * stopped unless `abort` is false (closing the batch card leaves an episode the user continued alone).
+   */
+  detach({ abort = true }: { abort?: boolean } = {}) {
     this.scheduled++;
     this.cancelRetry();
     this.unwatch?.();
     this.unwatch = null;
-    this.episode?.abort();
+    if (abort) this.episode?.abort();
     this.episode = null;
     const current = this.state.current;
     this.update({

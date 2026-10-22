@@ -377,11 +377,13 @@ function OpenedFileList({
   let same = 0;
   let differ = 0;
   let failed = 0;
+  let unrecorded = 0;
   for (const r of file.records) {
     const c = results?.get(r.position);
     if (!c) continue;
     if ("error" in c) failed++;
-    else if (r.reward !== null && Math.abs(c.reward - r.reward) > 1e-6) differ++;
+    else if (r.reward === null) unrecorded++;
+    else if (Math.abs(c.reward - r.reward) > 1e-6) differ++;
     else same++;
   }
 
@@ -405,7 +407,7 @@ function OpenedFileList({
           {running
             ? t("verifyRunning", { done: results?.size ?? 0, total: file.records.length })
             : results
-              ? t("verifySummary", { same, differ, failed })
+              ? t("verifySummary", { same, differ, failed }) + (unrecorded ? ` ${t("verifyUnrecorded", { n: unrecorded })}` : "")
               : t("verifyHint")}
         </span>
         <button type="button" className="btn btn-small" disabled={running} onClick={onRecompute}>

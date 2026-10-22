@@ -316,7 +316,7 @@ export default function App() {
   };
 
   const closeBatch = () => {
-    batch?.detach();
+    batch?.detach({ abort: false });
     setBatch(null);
   };
 

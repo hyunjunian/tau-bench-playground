@@ -259,9 +259,11 @@ const en = {
   verifyRunning: "Recomputing… {done}/{total}",
   verifySummary: "Recomputed: {same} match the file, {differ} differ (≠), {failed} could not be replayed (!).",
   colRecomputed: "Recomputed",
+  verifyUnrecorded: "{n} have no reward in the file.",
   replayBadge: "replay",
   replayObsDiffers: "The recorded result of {name} differs from the recomputed one: {recorded}",
   replayRewardDiffers: "The file records reward {recorded}, but replaying the trajectory gives {reward}.",
+  replayCrashRecorded: "The file says this run crashed, but the saved trajectory stops before the crash; it is scored 0 as recorded.",
   replayNote:
     "Rebuilt from a saved trajectory: every tool call was run again on a fresh database and the reward was recomputed.",
 };
@@ -524,9 +526,11 @@ const ko: Dict = {
   verifyRunning: "다시 계산 중… {done}/{total}",
   verifySummary: "다시 계산: {same}개 일치, {differ}개 다름(≠), {failed}개 다시 실행 못 함(!).",
   colRecomputed: "다시 계산",
+  verifyUnrecorded: "{n}개는 파일에 reward가 없습니다.",
   replayBadge: "다시 보기",
   replayObsDiffers: "{name}의 기록된 결과가 다시 계산한 결과와 다릅니다: {recorded}",
   replayRewardDiffers: "파일에는 reward {recorded}로 기록되어 있지만, 궤적을 다시 실행하면 {reward}입니다.",
+  replayCrashRecorded: "파일에는 이 실행이 오류로 중단됐다고 기록되어 있지만, 저장된 궤적은 그 전에 끝납니다. 기록대로 reward 0으로 처리합니다.",
   replayNote: "저장된 궤적으로 다시 만든 에피소드입니다. 모든 툴 호출을 새 데이터베이스에서 다시 실행하고 reward를 다시 계산했습니다.",
 };
 
@@ -538,7 +542,8 @@ const STRINGS: Record<Lang, Dict> = { en, ko };
 export function makeT(lang: Lang): TFunction {
   return (key, vars) => {
     let s = STRINGS[lang][key] ?? en[key] ?? key;
-    if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, String(v));
+    // A replacer function, so "$&" and friends in values (e.g. text from a file) stay literal.
+    if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, () => String(v));
     return s;
   };
 }

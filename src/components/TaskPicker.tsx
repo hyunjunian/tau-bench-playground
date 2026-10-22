@@ -40,13 +40,15 @@ export function TaskPicker({
   const [filter, setFilter] = useState<Filter>("all");
   const [showText, setShowText] = useState(!hideInstructions);
 
+  // Open once, on mount. (Picking changes `selected` right before the dialog closes; that must not reopen it.)
+  const initiallySelected = useRef(selected);
   useEffect(() => {
     const d = dialog.current;
     if (!d || d.open) return;
     d.showModal();
-    d.querySelector<HTMLElement>(`[data-index="${selected}"]`)?.scrollIntoView({ block: "center" });
+    d.querySelector<HTMLElement>(`[data-index="${initiallySelected.current}"]`)?.scrollIntoView({ block: "center" });
     d.querySelector<HTMLInputElement>("input[type=search]")?.focus();
-  }, [selected]);
+  }, []);
 
   const rows = useMemo<Row[]>(() => {
     const stats = new Map<number, { tries: number; passes: number }>();
