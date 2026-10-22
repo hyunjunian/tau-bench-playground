@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useT } from "../i18n";
 import type { ProviderId } from "../llm/providers";
 import type { Episode, EpisodeState } from "../tau/episode";
+import { endReasonText } from "../ui/reasons";
 import { type SuggestionSource, collectSuggestions } from "../ui/suggest";
 import { useNow } from "../ui/useNow";
 import { AgentComposer, UserComposer } from "./Composers";
@@ -75,15 +76,7 @@ function ResultBanner({
 }) {
   const t = useT();
   const done = state.done!;
-  const reasonText = {
-    user_stop: t("doneUserStop"),
-    transfer: t("doneTransfer"),
-    max_steps: t("doneMaxSteps"),
-    manual: t("doneManual"),
-    error: t("doneError"),
-    incomplete: t("doneIncomplete"),
-    crash: t("doneCrash"),
-  }[done.reason];
+  const reasonText = endReasonText(t, done.reason);
   const ok = done.reward === 1;
   return (
     <div className={`result-banner ${ok ? "ok" : "bad"}`}>

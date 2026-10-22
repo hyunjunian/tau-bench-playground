@@ -9,6 +9,7 @@ import { userSystemPrompt } from "../tau/prompts";
 import { PyDict, type PyValue, jsonPretty, strictEqual } from "../tau/py";
 import type { EpisodeRecord } from "../tau/records";
 import { isReadTool, valueText } from "../ui/format";
+import { endReasonText } from "../ui/reasons";
 import { JsonBlock } from "./JsonBlock";
 import { Markdown } from "./Markdown";
 
@@ -446,7 +447,7 @@ function OpenedFileList({
                 {results && (
                   <td
                     className={!c || "error" in c ? "muted" : isSuccess(c.reward) ? "check-ok" : "check-bad"}
-                    title={c ? ("error" in c ? c.error : c.reason) : undefined}
+                    title={c ? ("error" in c ? c.error : endReasonText(t, c.reason)) : undefined}
                   >
                     {!c ? "" : "error" in c ? "!" : `${differs ? "≠ " : ""}${c.reward.toFixed(1)}`}
                   </td>
@@ -560,7 +561,7 @@ function HistoryTab({
             </thead>
             <tbody>
               {entries.map((e) => (
-                <tr key={e.id} title={e.reason}>
+                <tr key={e.id} title={endReasonText(t, e.reason)}>
                   <td>{formatWhen(e.at)}</td>
                   <td>
                     <button type="button" className="link-btn" title={t("historyOpen")} onClick={() => onOpenEntry(e)}>

@@ -1,6 +1,7 @@
 import { useT } from "../i18n";
 import { type BatchResult, type BatchRunRef, type BatchState, MAX_AUTO_RETRIES } from "../tau/batch";
 import { averageReward, isSuccess, passHatK } from "../tau/metrics";
+import { endReasonText } from "../ui/reasons";
 import { useNow } from "../ui/useNow";
 
 function cellClass(result: BatchResult | undefined, running: boolean): string {
@@ -104,7 +105,7 @@ export function BatchCard({
               const r = byRun.get(`${index}/${trial}`);
               const running = isCurrent({ index, trial });
               const label = r
-                ? t("batchCell", { index, trial: trial + 1, reward: r.reward.toFixed(1), reason: r.reason })
+                ? t("batchCell", { index, trial: trial + 1, reward: r.reward.toFixed(1), reason: endReasonText(t, r.reason) })
                 : running
                   ? t("batchCellRunning", { index, trial: trial + 1 })
                   : t("batchCellPending", { index, trial: trial + 1 });
