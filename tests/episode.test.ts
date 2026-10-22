@@ -449,6 +449,12 @@ describe("replaying saved episodes", () => {
     expect(floats.traj[1].tool_calls?.[0].function.arguments).toBe('{"amount": 1.0, "n": 2}'); // ints and floats stay apart
   });
 
+  it("knows the agent model of the published sample runs from the file name", () => {
+    expect(modelsFromFileName("gpt-4o-retail.json")).toEqual({ agent: "gpt-4o" });
+    expect(modelsFromFileName("sonnet-35-new-airline.json")).toEqual({ agent: "claude-3.5-sonnet" });
+    expect(modelsFromFileName("results.json")).toEqual({});
+  });
+
   it("matches a task whose instruction was reworded since the run, keeping the recorded wording", async () => {
     const task = tasksFor("airline", "test")[1];
     const reworded = { ...task, instruction: task.instruction.replace(/^Your user id is (\S+?),/, "You are $1,") };

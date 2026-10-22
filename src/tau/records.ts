@@ -97,10 +97,10 @@ function readTraj(v: PyValue | undefined): ChatMessage[] {
  * playground's data comes from. raw.githubusercontent.com allows cross-origin reads.
  */
 export const SAMPLE_RUNS = [
-  { label: "GPT-4o airline", file: "gpt-4o-airline.json", mb: 4 },
-  { label: "GPT-4o retail", file: "gpt-4o-retail.json", mb: 11 },
-  { label: "Claude 3.5 Sonnet airline", file: "sonnet-35-new-airline.json", mb: 11 },
-  { label: "Claude 3.5 Sonnet retail", file: "sonnet-35-new-retail.json", mb: 27 },
+  { label: "GPT-4o airline", file: "gpt-4o-airline.json", mb: 4, agent: "gpt-4o" },
+  { label: "GPT-4o retail", file: "gpt-4o-retail.json", mb: 11, agent: "gpt-4o" },
+  { label: "Claude 3.5 Sonnet airline", file: "sonnet-35-new-airline.json", mb: 11, agent: "claude-3.5-sonnet" },
+  { label: "Claude 3.5 Sonnet retail", file: "sonnet-35-new-retail.json", mb: 27, agent: "claude-3.5-sonnet" },
 ].map((s) => ({
   ...s,
   url: `https://raw.githubusercontent.com/sierra-research/tau-bench/59a200c6d575d595120f1cb70fea53cef0632f6b/historical_trajectories/${s.file}`,
@@ -109,6 +109,8 @@ export const SAMPLE_RUNS = [
 /** Model names from a tau-bench results file name (run.py's checkpoint path). */
 export function modelsFromFileName(name: string): Partial<Record<Role, string>> {
   const base = name.split(/[\\/]/).pop() ?? name;
+  const sample = SAMPLE_RUNS.find((s) => s.file === base);
+  if (sample) return { agent: sample.agent }; // the files do not say which model simulated the user
   const m =
     /^(?:tool-calling|act|react|few-shot)-(.+)-\d+(?:\.\d+)?_range_-?\d+--?\d+_user-(.+)-(?:llm|react|verify|reflection)_/.exec(
       base,
