@@ -6,6 +6,7 @@ import { Inspector, type InspectorTab, OpenFileButton, type OpenedFile } from ".
 import { SetupPanel } from "./components/SetupPanel";
 import { loadDomain, loadTasks } from "./data/loader";
 import { LangContext, makeT } from "./i18n";
+import { MissingKeyError } from "./llm/client";
 import { type Endpoint, type ModelConfig, PROVIDERS, type ProviderId } from "./llm/providers";
 import { archiveEpisode, loadArchivedEpisode } from "./state/archive";
 import { type HistoryEntry, useHistory } from "./state/history";
@@ -117,7 +118,7 @@ export default function App() {
     (cfg: ModelConfig): Endpoint => {
       const endpoint = endpointFor(cfg.provider);
       if (!endpoint.apiKey && cfg.provider !== "custom") {
-        throw new Error(tRef.current("keyMissing", { provider: PROVIDERS[cfg.provider].label }));
+        throw new MissingKeyError(cfg.provider, tRef.current("keyMissing", { provider: PROVIDERS[cfg.provider].label }));
       }
       if (!cfg.model) throw new Error("No model selected.");
       return endpoint;
@@ -192,10 +193,11 @@ export default function App() {
     return true;
   };
 
-  const replaceWith = (spec: RunSpec) => {
-    if (!confirmReplace()) return;
+  const replaceWith = (spec: RunSpec): boolean => {
+    if (!confirmReplace()) return false;
     episode?.abort();
     launch(spec);
+    return true;
   };
 
   const startFromSettings = () => {
@@ -221,8 +223,9 @@ export default function App() {
     }
     const index = list.length ? (ref.index + 1) % list.length : 0;
     if (!list[index]) return;
-    update({ domain: ref.domain, split: ref.split, taskIndex: index });
-    replaceWith({ domain: ep.setup.domain, task: list[index], split: ref.split, index });
+    if (replaceWith({ domain: ep.setup.domain, task: list[index], split: ref.split, index })) {
+      update({ domain: ref.domain, split: ref.split, taskIndex: index });
+    }
   };
 
   const startBatch = () => {

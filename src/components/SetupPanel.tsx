@@ -87,6 +87,9 @@ function RoleCard({
   );
 }
 
+/** DOM id of a provider's API key field (the episode's error box links to it). */
+export const keyInputId = (provider: ProviderId) => `api-key-${provider}`;
+
 function KeyInput({ provider, value, onChange }: { provider: ProviderId; value: string; onChange: (v: string) => void }) {
   const t = useT();
   const [visible, setVisible] = useState(false);
@@ -103,6 +106,7 @@ function KeyInput({ provider, value, onChange }: { provider: ProviderId; value: 
       </span>
       <div className="row">
         <input
+          id={keyInputId(provider)}
           className="mono"
           type={visible ? "text" : "password"}
           autoComplete="off"

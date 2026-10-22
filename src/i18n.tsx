@@ -51,6 +51,7 @@ const en = {
   show: "Show",
   hide: "Hide",
   keyMissing: "Missing API key for {provider}. Add it under API keys.",
+  enterKey: "Enter API key",
 
   options: "Options",
   maxSteps: "Max agent actions",
@@ -287,6 +288,7 @@ const ko: Dict = {
   show: "보기",
   hide: "숨기기",
   keyMissing: "{provider} API 키가 없습니다. API 키 항목에 입력해 주세요.",
+  enterKey: "API 키 입력",
 
   options: "옵션",
   maxSteps: "에이전트 최대 행동 수",

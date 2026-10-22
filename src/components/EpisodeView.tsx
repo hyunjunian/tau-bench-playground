@@ -1,11 +1,19 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useT } from "../i18n";
+import type { ProviderId } from "../llm/providers";
 import type { Episode, EpisodeState } from "../tau/episode";
 import { type SuggestionSource, collectSuggestions } from "../ui/suggest";
 import { useNow } from "../ui/useNow";
 import { AgentComposer, UserComposer } from "./Composers";
+import { keyInputId } from "./SetupPanel";
 import type { PreferredTool } from "./ToolForm";
 import { Transcript } from "./Transcript";
+
+function focusKeyInput(provider: ProviderId) {
+  const input = document.getElementById(keyInputId(provider));
+  input?.scrollIntoView({ block: "center", behavior: "smooth" });
+  input?.focus({ preventScroll: true });
+}
 
 function StatusBar({ episode, state }: { episode: Episode; state: EpisodeState }) {
   const t = useT();
@@ -166,6 +174,11 @@ export function EpisodeView({
           <button type="button" className="btn btn-small" onClick={() => episode.endNow()}>
             {t("endNow")}
           </button>
+          {state.error.missingKey && (
+            <button type="button" className="btn btn-small" onClick={() => focusKeyInput(state.error!.missingKey!)}>
+              {t("enterKey")}
+            </button>
+          )}
           <button type="button" className="btn btn-small btn-primary" onClick={() => episode.retry()}>
             {t("retry")}
           </button>

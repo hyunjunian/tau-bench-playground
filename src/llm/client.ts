@@ -51,6 +51,17 @@ export interface CompletionResult {
   latencyMs: number;
 }
 
+/** No API key is set for the provider a role uses (thrown before any request). */
+export class MissingKeyError extends Error {
+  constructor(
+    readonly provider: ProviderId,
+    message: string,
+  ) {
+    super(message);
+    this.name = "MissingKeyError";
+  }
+}
+
 export class LlmError extends Error {
   constructor(
     message: string,

@@ -10,8 +10,8 @@
  *    conversation opens with "Hi! How can I help you today?", the episode
  *    ends when the user says ###STOP###)
  */
-import { type ChatMessage, LlmError, type Usage, chatCompletion, textContent } from "../llm/client";
-import type { Endpoint, ModelConfig } from "../llm/providers";
+import { type ChatMessage, LlmError, MissingKeyError, type Usage, chatCompletion, textContent } from "../llm/client";
+import type { Endpoint, ModelConfig, ProviderId } from "../llm/providers";
 import {
   type Domain,
   type DomainName,
@@ -90,8 +90,11 @@ export interface EpisodeState {
   turn: Role | null;
   busy: boolean;
   retry: { until: number; reason: string } | null;
-  /** `retryable`: a transient provider problem (network, 5xx, rate limit) rather than a bad model output or setting. */
-  error: { role: Role; message: string; retryable: boolean } | null;
+  /**
+   * `retryable`: a transient provider problem (network, 5xx, rate limit) rather than a bad model output or setting.
+   * `missingKey`: the provider whose API key has to be entered first.
+   */
+  error: { role: Role; message: string; retryable: boolean; missingKey?: ProviderId } | null;
   paused: boolean;
   agentSteps: number;
   done: EpisodeResult | null;
@@ -365,7 +368,8 @@ export class Episode {
       return false;
     }
     const message = e instanceof LlmError || e instanceof StepError || e instanceof Error ? e.message : String(e);
-    this.update({ error: { role, message, retryable: e instanceof LlmError && e.retryable } });
+    const missingKey = e instanceof MissingKeyError ? e.provider : undefined;
+    this.update({ error: { role, message, retryable: e instanceof LlmError && e.retryable, missingKey } });
     return false;
   }
 
