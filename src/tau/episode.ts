@@ -605,10 +605,13 @@ export class Episode {
   toJSON() {
     const { task, taskRef } = this.setup;
     const done = this.state.done;
+    // A replay did not call any model, so the current model settings would be misleading there.
     const describe = (role: Role) =>
       this.controllerOf(role) === "human"
         ? { controller: "human" }
-        : { controller: "model", models: this.modelsUsed(role), config: this.setup.modelFor(role) };
+        : this.setup.replayOf !== undefined
+          ? { controller: "model", models: this.modelsUsed(role) }
+          : { controller: "model", models: this.modelsUsed(role), config: this.setup.modelFor(role) };
     return {
       task_id: taskRef.index,
       reward: done?.reward ?? null,
@@ -641,6 +644,7 @@ export class Episode {
         agent_steps: this.state.agentSteps,
         usage: this.state.usage,
         started_at: this.startedAt.toISOString(),
+        ...(this.setup.replayOf !== undefined && { replay_of: this.setup.replayOf }),
         finished_at: this.finishedAt?.toISOString() ?? null,
       },
     };

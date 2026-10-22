@@ -228,6 +228,13 @@ describe("replaying saved episodes", () => {
     expect(replay.agentMessages.map((m) => [m.role, m.content])).toEqual(live.agentMessages.map((m) => [m.role, m.content]));
     expect(replay.userMessages).toEqual(live.userMessages);
     expect(b.items.some((i) => i.kind === "notice")).toBe(false);
+    // a replay's export names the models from the file, not the current settings
+    const exported = Episode.replay(
+      setupFor(resolved.domain, resolved.task, index, { replayOf: "export.json" }),
+      resolved.source,
+    ).toJSON();
+    expect(exported.playground.agent).toEqual({ controller: "model", models: ["fake-model"] });
+    expect(exported.playground).toMatchObject({ replay_of: "export.json" });
   });
 
   it("scores tau-bench tool-calling results like the original", async () => {
