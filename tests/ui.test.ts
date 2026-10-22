@@ -5,6 +5,7 @@ import { sanitize, taskFromHash, taskHash } from "../src/state/settings";
 import { parseTasks } from "../src/tau/env";
 import { PyDict } from "../src/tau/py";
 import { type SuggestionSource, collectSuggestions, suggestionsFor } from "../src/ui/suggest";
+import { transcriptMarkdown } from "../src/ui/transcript";
 import { domainFor, read } from "./helpers";
 
 const retail = domainFor("retail");
@@ -83,6 +84,46 @@ describe("tool-form suggestions in the airline domain", () => {
     ).flights;
     expect(suggestionsFor(all, "flight_number")).toEqual(expect.arrayContaining(flights.map((f) => f.flight_number)));
     expect(suggestionsFor(all, "date")).toEqual(expect.arrayContaining(flights.map((f) => f.date)));
+  });
+});
+
+describe("transcript as Markdown", () => {
+  it("lists messages, tool calls with results, and the outcome", () => {
+    const md = transcriptMarkdown(
+      [
+        { id: 1, kind: "greeting", text: "Hi! How can I help you today?" },
+        { id: 2, kind: "user", text: "Cancel my order", by: "model", meta: { model: "m-1" } },
+        {
+          id: 3,
+          kind: "tool",
+          by: "human",
+          step: 1,
+          name: "get_order_details",
+          args: '{"order_id": "#W1"}',
+          observation: "Error: order `x` not found",
+          error: true,
+          note: null,
+        },
+        { id: 4, kind: "agent", text: "Sorry, I can't find it.", by: "human", step: 2 },
+      ],
+      { title: "τ-bench retail/test #0", agent: "Agent", user: "User", outcome: "Reward 0.0: Ended manually." },
+    );
+    expect(md).toBe(
+      [
+        "## τ-bench retail/test #0",
+        "",
+        "**Agent:** Hi! How can I help you today?",
+        "",
+        "**User (m-1):** Cancel my order",
+        "",
+        '- `get_order_details({"order_id": "#W1"})` → `Error: order \'x\' not found`',
+        "",
+        "**Agent (human):** Sorry, I can't find it.",
+        "",
+        "**Reward 0.0: Ended manually.**",
+        "",
+      ].join("\n"),
+    );
   });
 });
 

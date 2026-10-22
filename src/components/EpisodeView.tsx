@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { Episode, EpisodeState } from "../tau/episode";
+import { downloadText } from "../ui/format";
 import { endReasonText } from "../ui/reasons";
 import { type SuggestionSource, collectSuggestions } from "../ui/suggest";
+import { transcriptMarkdown } from "../ui/transcript";
 import { useNow } from "../ui/useNow";
 import { AgentComposer, UserComposer } from "./Composers";
 import { focusKeyInput } from "./SetupPanel";
@@ -56,18 +58,33 @@ function StatusBar({ episode, state }: { episode: Episode; state: EpisodeState }
 
 function ResultBanner({
   state,
+  markdown,
   onDetails,
   onDownload,
   onAgain,
   onNext,
 }: {
   state: EpisodeState;
+  /** The transcript as Markdown, built on demand. */
+  markdown: () => string;
   onDetails: () => void;
   onDownload: () => void;
   onAgain: () => void;
   onNext: () => void;
 }) {
   const t = useT();
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    const text = markdown();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // no clipboard access (e.g. an insecure origin): save it instead
+      downloadText("tau-bench-transcript.md", text, "text/markdown");
+    }
+  };
   const done = state.done!;
   const reasonText = endReasonText(t, done.reason);
   const ok = done.reward === 1;
@@ -99,6 +116,9 @@ function ResultBanner({
         </button>
         <button type="button" className="btn btn-small" onClick={onDownload}>
           {t("download")}
+        </button>
+        <button type="button" className="btn btn-small" onClick={() => void copy()}>
+          {copied ? `✓ ${t("copied")}` : t("copyMarkdown")}
         </button>
         <button type="button" className="btn btn-small" onClick={onAgain}>
           {t("sameTaskAgain")}
@@ -151,7 +171,23 @@ export function EpisodeView({
 
   let footer: React.ReactNode;
   if (state.done) {
-    footer = <ResultBanner state={state} onDetails={onDetails} onDownload={onDownload} onAgain={onAgain} onNext={onNext} />;
+    const markdown = () =>
+      transcriptMarkdown(state.items, {
+        title: `τ-bench ${taskRef.domain}/${taskRef.split} #${taskRef.index}`,
+        agent: t("agentLabel"),
+        user: t("userLabel"),
+        outcome: state.done ? `${t("rewardLabel")} ${state.done.reward.toFixed(1)}: ${endReasonText(t, state.done.reason)}` : null,
+      });
+    footer = (
+      <ResultBanner
+        state={state}
+        markdown={markdown}
+        onDetails={onDetails}
+        onDownload={onDownload}
+        onAgain={onAgain}
+        onNext={onNext}
+      />
+    );
   } else if (state.error) {
     footer = (
       <div className="error-box" role="alert">

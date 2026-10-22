@@ -186,6 +186,8 @@ const en = {
   rewardLabel: "Reward",
   viewDetails: "Details",
   download: "Download JSON",
+  copyMarkdown: "Copy as Markdown",
+  copied: "Copied",
   sameTaskAgain: "Same task again",
 
   tabTask: "Task",
@@ -465,6 +467,8 @@ const ko: Dict = {
   rewardLabel: "Reward",
   viewDetails: "상세 보기",
   download: "JSON 다운로드",
+  copyMarkdown: "마크다운으로 복사",
+  copied: "복사됨",
   sameTaskAgain: "같은 태스크 다시",
 
   tabTask: "태스크",
