@@ -641,6 +641,15 @@ input[type="number"] {
 .model-picker {
   margin-top: 6px;
 }
+.draft-model {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.draft-model summary {
+  cursor: pointer;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
 .start-bar {
   position: sticky;
   bottom: 0;
@@ -1170,6 +1179,39 @@ input[type="number"] {
 }
 .composer-user .composer-title {
   color: var(--user);
+}
+.composer-tabs {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.composer-tabs .tabs.small {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+.draft {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+.draft .spinner {
+  width: 12px;
+  height: 12px;
+  margin-right: 0;
+}
+.draft-note {
+  font-size: 12px;
+  font-style: italic;
+  margin: 0 0 6px;
+}
+.composer-head {
+  align-items: flex-start;
 }
 .message-box textarea {
   min-height: 64px;

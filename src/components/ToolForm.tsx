@@ -1,9 +1,9 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { JsonSchema, ToolInfo } from "../tau/env";
 import { parseToolArguments } from "../tau/episode";
 import { PyDict, PyFloat, type PyValue, jsonPretty } from "../tau/py";
-import { isReadTool } from "../ui/format";
+import { isReadTool, prettyArgs } from "../ui/format";
 import { type Suggestions, suggestionsFor } from "../ui/suggest";
 
 const MAX_CHIPS = 12;
@@ -11,6 +11,12 @@ const MAX_CHIPS = 12;
 /** The tool picked in the Tools tab ("Use"). */
 export interface PreferredTool {
   name: string;
+}
+
+/** A tool call drafted by the model, to load into the form (a new object per draft). */
+export interface ToolDraft {
+  name: string;
+  args: string;
 }
 
 type Row = Record<string, string>;
@@ -144,29 +150,57 @@ function ListChips({ options, value, onChange }: { options: string[]; value: str
 export function ToolForm({
   tools,
   preferred,
+  draft,
   suggestions,
   onRun,
 }: {
   tools: ToolInfo[];
   preferred: PreferredTool | null;
+  draft?: ToolDraft | null;
   suggestions?: Suggestions;
   onRun: (name: string, kwargs: PyDict) => void;
 }) {
   const t = useT();
-  const [name, setName] = useState(preferred?.name ?? tools[0]?.function.name ?? "");
+  // A form opened for a draft (the Tool tab was not showing) starts from it.
+  const startDraft = draft && tools.some((x) => x.function.name === draft.name) ? draft : null;
+  const [name, setName] = useState(startDraft?.name ?? preferred?.name ?? tools[0]?.function.name ?? "");
   const info = useMemo(() => tools.find((x) => x.function.name === name) ?? tools[0], [tools, name]);
   const [values, setValues] = useState<Values>(() => emptyValues(info));
-  const [jsonMode, setJsonMode] = useState(false);
-  const [jsonText, setJsonText] = useState("{}");
+  const [jsonMode, setJsonMode] = useState(!!startDraft);
+  const [jsonText, setJsonText] = useState(() => (startDraft ? prettyArgs(startDraft.args) : "{}"));
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (preferred) setName(preferred.name);
   }, [preferred]);
 
+  // A later draft shows its arguments as JSON; for another tool they wait for the switch, since a tool change resets the form.
+  const pendingDraft = useRef<ToolDraft | null>(null);
   useEffect(() => {
+    if (!draft) return;
+    if (!tools.some((x) => x.function.name === draft.name)) {
+      setError(t("draftUnknownTool", { name: draft.name }));
+      return;
+    }
+    setJsonMode(true);
+    setError(null);
+    if (draft.name === info.function.name) {
+      setJsonText(prettyArgs(draft.args));
+    } else {
+      pendingDraft.current = draft;
+      setName(draft.name);
+    }
+  }, [draft]);
+
+  // Reset the form when the tool changes (not on mount: the initial state already fits).
+  const shownInfo = useRef(info);
+  useEffect(() => {
+    if (shownInfo.current === info) return;
+    shownInfo.current = info;
+    const d = pendingDraft.current;
+    pendingDraft.current = null;
     setValues(emptyValues(info));
-    setJsonText("{}");
+    setJsonText(d && d.name === info.function.name ? prettyArgs(d.args) : "{}");
     setError(null);
   }, [info]);
 

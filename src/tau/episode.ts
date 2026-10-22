@@ -127,6 +127,14 @@ export function parseToolArguments(text: string): PyDict {
   return value;
 }
 
+/** What a role's model would do next (see Episode.draft): a tool call (agent only) or a message. */
+export interface Draft {
+  model: string;
+  tool?: { name: string; args: string };
+  /** The agent's reply or the user's next message; with a tool call, any text the model wrote next to it. */
+  text: string;
+}
+
 /** A recorded conversation to rebuild an episode from (see Episode.replay). */
 export interface ReplaySource {
   /**
@@ -186,6 +194,8 @@ export class Episode {
   private stepBudget = 0;
   private abortController: AbortController | null = null;
   private humanCalls = 0;
+  /** Model drafts a human player asked for (exported, since they can shape the episode). */
+  private readonly drafts: Record<Role, number> = { agent: 0, user: 0 };
 
   constructor(readonly setup: EpisodeSetup) {
     this.env = new TauEnv(setup.domain, setup.task);
@@ -363,23 +373,50 @@ export class Episode {
         signal: this.abortController.signal,
         onRetry: ({ waitMs, reason }) => this.update({ retry: { until: Date.now() + waitMs, reason } }),
       });
-      const u = this.state.usage[role];
-      this.update({
-        usage: {
-          ...this.state.usage,
-          [role]: {
-            calls: u.calls + 1,
-            prompt: u.prompt + (res.usage?.prompt_tokens ?? 0),
-            completion: u.completion + (res.usage?.completion_tokens ?? 0),
-          },
-        },
-      });
+      this.countUsage(role, res.usage);
       const meta: GenMeta = { model: cfg.model, latencyMs: res.latencyMs, reasoning: res.reasoning, usage: res.usage };
       return { message: res.message, meta };
     } finally {
       this.abortController = null;
       this.update({ busy: false, retry: null });
     }
+  }
+
+  private countUsage(role: Role, usage: Usage | undefined) {
+    const u = this.state.usage[role];
+    this.update({
+      usage: {
+        ...this.state.usage,
+        [role]: {
+          calls: u.calls + 1,
+          prompt: u.prompt + (usage?.prompt_tokens ?? 0),
+          completion: u.completion + (usage?.completion_tokens ?? 0),
+        },
+      },
+    });
+  }
+
+  /**
+   * Ask the role's model what it would do now, for a human playing that role. Nothing is sent or
+   * recorded in the conversation; only the token usage counts.
+   */
+  async draft(role: Role, signal?: AbortSignal): Promise<Draft> {
+    const cfg = this.setup.modelFor(role);
+    const endpoint = this.setup.resolveEndpoint(cfg);
+    const res = await chatCompletion({
+      endpoint,
+      model: cfg.model,
+      messages: role === "agent" ? this.agentMessages : this.userMessages,
+      tools: role === "agent" ? this.setup.domain.toolsInfo : undefined,
+      temperature: cfg.temperature,
+      reasoningEffort: cfg.reasoningEffort,
+      signal,
+    });
+    this.countUsage(role, res.usage);
+    this.drafts[role]++;
+    const call = role === "agent" ? res.message.tool_calls?.[0] : undefined;
+    const text = res.message.content ?? "";
+    return call ? { model: cfg.model, tool: { name: call.function.name, args: call.function.arguments }, text } : { model: cfg.model, text };
   }
 
   private fail(role: Role, e: unknown): false {
@@ -681,6 +718,7 @@ export class Episode {
         max_agent_steps: this.setup.maxAgentSteps,
         agent_steps: this.state.agentSteps,
         usage: this.state.usage,
+        ...((this.drafts.agent > 0 || this.drafts.user > 0) && { model_drafts: { ...this.drafts } }),
         started_at: this.startedAt.toISOString(),
         ...(this.setup.replayOf !== undefined && { replay_of: this.setup.replayOf }),
         finished_at: this.finishedAt?.toISOString() ?? null,

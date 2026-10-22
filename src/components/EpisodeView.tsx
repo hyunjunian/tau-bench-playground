@@ -1,20 +1,13 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useT } from "../i18n";
-import type { ProviderId } from "../llm/providers";
 import type { Episode, EpisodeState } from "../tau/episode";
 import { endReasonText } from "../ui/reasons";
 import { type SuggestionSource, collectSuggestions } from "../ui/suggest";
 import { useNow } from "../ui/useNow";
 import { AgentComposer, UserComposer } from "./Composers";
-import { keyInputId } from "./SetupPanel";
+import { focusKeyInput } from "./SetupPanel";
 import type { PreferredTool } from "./ToolForm";
 import { Transcript } from "./Transcript";
-
-function focusKeyInput(provider: ProviderId) {
-  const input = document.getElementById(keyInputId(provider));
-  input?.scrollIntoView({ block: "center", behavior: "smooth" });
-  input?.focus({ preventScroll: true });
-}
 
 function StatusBar({ episode, state }: { episode: Episode; state: EpisodeState }) {
   const t = useT();
@@ -185,12 +178,22 @@ export function EpisodeView({
         tools={domain.toolsInfo}
         preferredTool={preferredTool}
         suggestions={suggestions}
+        draftModel={episode.setup.modelFor("agent").model}
+        onDraft={(signal) => episode.draft("agent", signal)}
         onReply={(text) => episode.sendAgentReply(text)}
         onTool={(name, kwargs) => episode.callAgentTool(name, kwargs)}
       />
     );
   } else if (humanTurn && state.turn === "user") {
-    footer = <UserComposer instruction={task.instruction} started={userStarted} onSend={(text) => episode.sendUserMessage(text)} />;
+    footer = (
+      <UserComposer
+        instruction={task.instruction}
+        started={userStarted}
+        draftModel={episode.setup.modelFor("user").model}
+        onDraft={(signal) => episode.draft("user", signal)}
+        onSend={(text) => episode.sendUserMessage(text)}
+      />
+    );
   } else if (state.turn) {
     footer = <StatusBar episode={episode} state={state} />;
   }

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "../src/llm/client";
 import { BatchRun, MAX_AUTO_RETRIES } from "../src/tau/batch";
 import { type Domain, type DomainName, type Task, TauEnv } from "../src/tau/env";
-import { Episode, type EpisodeSetup } from "../src/tau/episode";
+import { Episode, type EpisodeSetup, parseToolArguments } from "../src/tau/episode";
 import { averageReward, comb, passHatK } from "../src/tau/metrics";
 import { jsonDumps } from "../src/tau/py";
 import { modelsFromFileName, parseRecordsFile, replayRecord, resolveRecord } from "../src/tau/records";
@@ -172,6 +172,47 @@ describe("Episode with model players", () => {
     expect(ep.agentMessages[0]).toEqual({ role: "system", content: domain.wiki });
     expect(ep.agentMessages[1]).toEqual({ role: "user", content: "Hi, I need some help." });
     expect(s.usage.agent.calls + s.usage.user.calls).toBe(fetch.mock.calls.length);
+  });
+
+  it("drafts the next move for a human player without acting on it", async () => {
+    const domain = domains.retail;
+    const task = tasksFor("retail", "test")[0];
+    vi.stubGlobal(
+      "fetch",
+      fakeProvider(() => task),
+    );
+    const ep = new Episode(setupFor(domain, task, 0, { controllers: { agent: "human", user: "model" } }));
+    ep.start();
+    await new Promise<void>((resolve) => {
+      const check = () => ep.getState().turn === "agent" && !ep.getState().busy && resolve();
+      ep.subscribe(check);
+      check();
+    });
+    const before = { items: ep.getState().items.length, messages: ep.agentMessages.length, actions: ep.env.actions.length };
+    const draft = await ep.draft("agent");
+    expect(draft.tool).toEqual({ name: task.actions[0].name, args: jsonDumps(task.actions[0].kwargs) });
+    expect({ items: ep.getState().items.length, messages: ep.agentMessages.length, actions: ep.env.actions.length }).toEqual(
+      before,
+    );
+    expect(ep.getState().usage.agent.calls).toBe(1);
+
+    // the human runs it, and the next draft follows on from there
+    ep.callAgentTool(draft.tool!.name, parseToolArguments(draft.tool!.args));
+    expect((await ep.draft("agent")).tool?.name).toBe(task.actions[1].name);
+    expect(ep.toJSON().playground).toMatchObject({ model_drafts: { agent: 2, user: 0 } });
+  });
+
+  it("drafts the next customer message for a human user", async () => {
+    const task = tasksFor("retail", "test")[0];
+    vi.stubGlobal(
+      "fetch",
+      fakeProvider(() => task),
+    );
+    const ep = new Episode(setupFor(domains.retail, task, 0, { controllers: { agent: "model", user: "human" } }));
+    ep.start();
+    expect(ep.getState().turn).toBe("user");
+    expect(await ep.draft("user")).toEqual({ model: "fake-model", text: "Hi, I need some help." });
+    expect(ep.getState().items).toHaveLength(1); // only the greeting
   });
 
   it("stops at the step limit with reward 0", async () => {

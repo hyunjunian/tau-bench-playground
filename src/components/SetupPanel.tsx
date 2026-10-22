@@ -85,8 +85,14 @@ function RoleCard({
         ]}
         onChange={(controller) => onChange({ ...value, controller })}
       />
-      {value.controller === "model" && (
+      {value.controller === "model" ? (
         <ModelPicker value={value.model} onChange={(model) => onChange({ ...value, model })} endpointFor={endpointFor} />
+      ) : (
+        // A human can still ask this model for a draft of the next move.
+        <details className="draft-model">
+          <summary>{t("draftModelTitle", { model: value.model.model || "?" })}</summary>
+          <ModelPicker value={value.model} onChange={(model) => onChange({ ...value, model })} endpointFor={endpointFor} />
+        </details>
       )}
     </div>
   );
@@ -94,6 +100,12 @@ function RoleCard({
 
 /** DOM id of a provider's API key field (the episode's error box links to it). */
 export const keyInputId = (provider: ProviderId) => `api-key-${provider}`;
+
+export function focusKeyInput(provider: ProviderId) {
+  const input = document.getElementById(keyInputId(provider));
+  input?.scrollIntoView({ block: "center", behavior: "smooth" });
+  input?.focus({ preventScroll: true });
+}
 
 function KeyInput({ provider, value, onChange }: { provider: ProviderId; value: string; onChange: (v: string) => void }) {
   const t = useT();
@@ -209,13 +221,9 @@ export function SetupPanel({
   const splits = DOMAIN_SPLITS[settings.domain];
   const max = taskCount ?? 0;
   const setTask = (i: number) => update({ taskIndex: Math.max(0, Math.min(max - 1, i)) });
-  const providersInUse = Array.from(
-    new Set(
-      (["agent", "user"] as const)
-        .filter((r) => settings[r].controller === "model")
-        .map((r) => settings[r].model.provider),
-    ),
-  );
+  // Human roles count too: their model writes drafts on request.
+  const providersInUse = Array.from(new Set((["agent", "user"] as const).map((r) => settings[r].model.provider)));
+  const anyModel = settings.agent.controller === "model" || settings.user.controller === "model";
 
   return (
     <div className="setup">
@@ -318,7 +326,7 @@ export function SetupPanel({
         </div>
         <RoleCard role="agent" value={settings.agent} onChange={(agent) => update({ agent })} endpointFor={endpointFor} />
         <RoleCard role="user" value={settings.user} onChange={(user) => update({ user })} endpointFor={endpointFor} />
-        {providersInUse.length > 0 && <p className="note">{t("modelNote")}</p>}
+        {anyModel && <p className="note">{t("modelNote")}</p>}
       </section>
 
       {providersInUse.length > 0 && (

@@ -151,6 +151,26 @@ describe("chatCompletion", () => {
     });
   });
 
+  it("gives Gemini a placeholder thought signature for tool calls it did not make", async () => {
+    const human = { id: "h1", type: "function" as const, function: { name: "think", arguments: "{}" } };
+    const gemini = { ...human, id: "g1", extra_content: { google: { thought_signature: "real" } } };
+    const messages = [
+      { role: "user" as const, content: "hi" },
+      { role: "assistant" as const, content: null, tool_calls: [human] },
+      { role: "tool" as const, tool_call_id: "h1", name: "think", content: "" },
+      { role: "assistant" as const, content: null, tool_calls: [gemini] },
+    ];
+    const fetch = provider([ok({ content: "x" }), ok({ content: "x" })]);
+    await run(request("google", { messages }));
+    const sent = JSON.parse(String(fetch.mock.calls[0][1].body)).messages;
+    expect(sent[1].tool_calls[0].extra_content).toEqual({ google: { thought_signature: "skip_thought_signature_validator" } });
+    expect(sent[3].tool_calls[0].extra_content).toEqual({ google: { thought_signature: "real" } });
+    expect(messages[1].tool_calls?.[0]).not.toHaveProperty("extra_content"); // the history itself is untouched
+
+    await run(request("openrouter", { messages }));
+    expect(JSON.parse(String(fetch.mock.calls[1][1].body)).messages[1].tool_calls[0]).not.toHaveProperty("extra_content");
+  });
+
   it("keeps OpenRouter reasoning details and shows reasoning text", async () => {
     provider([ok({ content: "hi", reasoning: "because", reasoning_details: [{ type: "reasoning.text", text: "because" }] })]);
     const res = await run(request("openrouter"));

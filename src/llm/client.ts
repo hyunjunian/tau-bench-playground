@@ -182,10 +182,25 @@ function toolsForProvider(tools: ToolInfo[], provider: ProviderId): unknown[] {
   });
 }
 
+/**
+ * Gemini 3 rejects a function call in the history that carries no thought signature, which is the case for
+ * calls a human made (or another model, after a model switch). Google documents this placeholder for them.
+ */
+const SKIP_SIGNATURE = { google: { thought_signature: "skip_thought_signature_validator" } };
+
+function messagesForProvider(messages: ChatMessage[], provider: ProviderId): ChatMessage[] {
+  if (provider !== "google") return messages;
+  return messages.map((m) =>
+    m.tool_calls?.some((c) => !c.extra_content)
+      ? { ...m, tool_calls: m.tool_calls.map((c) => (c.extra_content ? c : { ...c, extra_content: SKIP_SIGNATURE })) }
+      : m,
+  );
+}
+
 export async function chatCompletion(req: CompletionRequest): Promise<CompletionResult> {
   const { endpoint } = req;
   const url = `${endpoint.baseUrl.replace(/\/+$/, "")}/chat/completions`;
-  const body: Record<string, unknown> = { model: req.model, messages: req.messages };
+  const body: Record<string, unknown> = { model: req.model, messages: messagesForProvider(req.messages, endpoint.provider) };
   if (req.tools && req.tools.length > 0) body.tools = toolsForProvider(req.tools, endpoint.provider);
   if (req.temperature !== null && req.temperature !== undefined) body.temperature = req.temperature;
   if (req.reasoningEffort) body.reasoning_effort = req.reasoningEffort;
