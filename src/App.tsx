@@ -157,7 +157,13 @@ export default function App() {
   /** Create and start an episode; `controllers` defaults to the current settings. */
   const launch = (
     spec: RunSpec,
-    opts: { controllers?: Record<Role, Controller>; trial?: number; keepTab?: boolean; onFinish?: (ep: Episode) => void } = {},
+    opts: {
+      controllers?: Record<Role, Controller>;
+      trial?: number;
+      /** Batch episodes run unattended: no step-by-step pausing, no tab switching. */
+      unattended?: boolean;
+      onFinish?: (ep: Episode) => void;
+    } = {},
   ): Episode => {
     const s = settingsRef.current;
     const ep = new Episode({
@@ -167,7 +173,7 @@ export default function App() {
       controllers: opts.controllers ?? { agent: s.agent.controller, user: s.user.controller },
       modelFor: (role) => settingsRef.current[role].model,
       maxAgentSteps: s.maxAgentSteps,
-      startPaused: s.stepMode,
+      startPaused: s.stepMode && !opts.unattended,
       resolveEndpoint,
       onFinish: (finished) => {
         record(finished, opts.trial);
@@ -176,7 +182,7 @@ export default function App() {
     });
     setPreferredTool(null);
     setEpisode(ep);
-    if (!opts.keepTab) setTab("task");
+    if (!opts.unattended) setTab("task");
     ep.start();
     return ep;
   };
@@ -242,7 +248,7 @@ export default function App() {
     const run = new BatchRun({ domain: batchDomain.name, split, indices, trials: b.trials }, ({ index, trial }, onFinish) =>
       launch(
         { domain: batchDomain, task: batchTasks[index], split, index },
-        { controllers: { agent: "model", user: "model" }, trial, keepTab: true, onFinish },
+        { controllers: { agent: "model", user: "model" }, trial, unattended: true, onFinish },
       ),
     );
     setBatch(run);
