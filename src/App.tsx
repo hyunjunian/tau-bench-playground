@@ -554,6 +554,8 @@ export default function App() {
                   {t("start")}
                 </button>
                 <p className="welcome-open muted">
+                  {t("welcomeBatch")}
+                  <br />
                   {t("welcomeOpen")} <OpenFileButton onOpen={(f) => void openFile(f)} />
                 </p>
               </div>

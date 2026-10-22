@@ -114,6 +114,7 @@ const en = {
   welcomeStep1: "Pick a domain and task.",
   welcomeStep2: "Choose Human or Model for the agent and the user.",
   welcomeStep3: "Add a free API key if a model is involved, then start.",
+  welcomeBatch: "To score a model on many tasks at once (average reward, pass^k), use Batch run under Options.",
   welcomeOpen: "Have a downloaded episode or a tau-bench results file? Drop the JSON on this page to replay it, or",
 
   greetingLabel: "fixed opening line",
@@ -376,6 +377,7 @@ const ko: Dict = {
   welcomeStep1: "도메인과 태스크를 고르세요.",
   welcomeStep2: "에이전트와 유저를 각각 사람 또는 모델로 정하세요.",
   welcomeStep3: "모델을 쓰면 무료 API 키를 넣고 시작하세요.",
+  welcomeBatch: "여러 태스크로 모델을 한꺼번에 채점하려면(평균 reward, pass^k) 옵션의 일괄 실행을 쓰세요.",
   welcomeOpen: "내려받은 에피소드나 tau-bench 결과 파일이 있다면 JSON 파일을 이 페이지에 끌어다 놓아 다시 볼 수 있습니다. 또는",
 
   greetingLabel: "고정 첫 인사",
