@@ -10,7 +10,7 @@ import { type Domain, type DomainName, type Task, TauEnv } from "../src/tau/env"
 import { Episode, type EpisodeSetup } from "../src/tau/episode";
 import { averageReward, comb, passHatK } from "../src/tau/metrics";
 import { jsonDumps } from "../src/tau/py";
-import { modelsFromFileName, parseRecordsFile, resolveRecord } from "../src/tau/records";
+import { modelsFromFileName, parseRecordsFile, replayRecord, resolveRecord } from "../src/tau/records";
 import { domainFor, tasksFor } from "./helpers";
 
 const domains = { retail: domainFor("retail"), airline: domainFor("airline") };
@@ -315,6 +315,15 @@ describe("replaying saved episodes", () => {
     expect(ep.getState().done).toMatchObject({ reason: "user_stop", reward: 1 });
     expect(ep.getState().items.filter((i) => i.kind === "tool")).toHaveLength(task.actions.length);
     expect(ep.getState().items.some((i) => i.kind === "notice")).toBe(false);
+  });
+
+  it("replays a record on its own (for recomputing a whole file)", async () => {
+    const task = tasksFor("airline", "test")[5];
+    const [record] = parseRecordsFile(JSON.stringify([toolCallingRecord(domains.airline, task, 5)]));
+    const ep = await replayRecord(record, loaders, "file.json");
+    expect(ep.getState().done?.reward).toBe(1);
+    expect(ep.setup.replayOf).toBe("file.json");
+    expect(() => ep.setup.resolveEndpoint(ep.setup.modelFor("agent"))).toThrow();
   });
 
   it("marks a trajectory that just stops as incomplete", async () => {

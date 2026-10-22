@@ -765,6 +765,13 @@ input[type="number"] {
 .opened-file p {
   margin: 2px 0 0;
 }
+.verify-row {
+  margin: 8px 0 2px;
+  align-items: flex-start;
+}
+.history tr.differs td {
+  background: var(--bad-soft);
+}
 .history td.clip {
   max-width: 110px;
   overflow: hidden;

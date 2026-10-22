@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { BatchCard } from "./components/BatchCard";
 import type { PreferredTool } from "./components/ToolForm";
 import { EpisodeView } from "./components/EpisodeView";
-import { Inspector, type InspectorTab, OpenFileButton, type OpenedFile } from "./components/Inspector";
+import { Inspector, type InspectorTab, OpenFileButton, type OpenedFile, type Recomputed } from "./components/Inspector";
 import { SetupPanel } from "./components/SetupPanel";
 import { loadDomain, loadTasks } from "./data/loader";
 import { LangContext, makeT } from "./i18n";
@@ -14,7 +14,7 @@ import { taskFromHash, taskHash, useSettings } from "./state/settings";
 import { BatchRun, type BatchResult, type BatchState } from "./tau/batch";
 import type { Domain, Task } from "./tau/env";
 import { type Controller, Episode, type EpisodeState, type Role } from "./tau/episode";
-import { type EpisodeRecord, parseRecordsFile, resolveRecord } from "./tau/records";
+import { type EpisodeRecord, parseRecordsFile, replayRecord } from "./tau/records";
 import { downloadJson } from "./ui/format";
 
 const noopSubscribe = () => () => {};
@@ -270,22 +270,9 @@ export default function App() {
   const openRecord = async (rec: EpisodeRecord, label: string) => {
     if (!confirmReplace()) return false;
     try {
-      const resolved = await resolveRecord(rec, loaders);
-      const ep = Episode.replay(
-        {
-          domain: resolved.domain,
-          task: resolved.task,
-          taskRef: resolved.taskRef,
-          controllers: { agent: rec.controllers.agent ?? "model", user: rec.controllers.user ?? "model" },
-          modelFor: (role) => settingsRef.current[role].model,
-          maxAgentSteps: resolved.maxAgentSteps,
-          resolveEndpoint,
-          replayOf: label,
-        },
-        resolved.source,
-      );
+      const ep = await replayRecord(rec, loaders, label);
       episode?.abort();
-      const ref = resolved.taskRef;
+      const ref = ep.setup.taskRef;
       if (ref.split !== "file") update({ domain: ref.domain, split: ref.split, taskIndex: ref.index });
       setPreferredTool(null);
       setEpisode(ep);
@@ -295,6 +282,32 @@ export default function App() {
       window.alert(t("openFailed", { error: e instanceof Error ? e.message : String(e) }));
       return false;
     }
+  };
+
+  const openedRef = useRef(opened);
+  openedRef.current = opened;
+
+  /** Replay every record of the opened file and compare its reward with the recorded one. */
+  const recomputeOpened = async () => {
+    const file = openedRef.current;
+    if (!file || file.recomputing) return;
+    const results = new Map<number, Recomputed>();
+    const publish = (recomputing: boolean) =>
+      setOpened((o) => (o?.records === file.records ? { ...o, recomputed: new Map(results), recomputing } : o));
+    publish(true);
+    for (const r of file.records) {
+      if (openedRef.current?.records !== file.records) return; // closed or replaced
+      try {
+        const done = (await replayRecord(r, loaders)).getState().done!;
+        results.set(r.position, { reward: done.reward, reason: done.reason });
+      } catch (e) {
+        results.set(r.position, { error: e instanceof Error ? e.message : String(e) });
+      }
+      publish(true);
+      // Let the page paint between replays (each one copies the database).
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    publish(false);
   };
 
   const openFile = async (file: File) => {
@@ -470,6 +483,7 @@ export default function App() {
               onOpenFile={(f) => void openFile(f)}
               onOpenRecord={(r) => void openRecord(r, `${opened?.name ?? ""} · ${r.position + 1}`)}
               onCloseFile={() => setOpened(null)}
+              onRecompute={() => void recomputeOpened()}
               onUseTool={(name) => setPreferredTool({ name })}
             />
           </aside>

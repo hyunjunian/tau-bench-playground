@@ -4,7 +4,7 @@ import type { HistoryEntry } from "../state/history";
 import { compareDatabases } from "../tau/diff";
 import type { Domain, Task } from "../tau/env";
 import type { Episode, EpisodeState } from "../tau/episode";
-import { averageReward, isSuccess } from "../tau/metrics";
+import { averageReward, isSuccess, passHatK } from "../tau/metrics";
 import { PyDict, type PyValue, jsonPretty, strictEqual } from "../tau/py";
 import type { EpisodeRecord } from "../tau/records";
 import { isReadTool, valueText } from "../ui/format";
@@ -17,6 +17,9 @@ export type InspectorTab = "task" | "policy" | "tools" | "result" | "data" | "hi
 export interface OpenedFile {
   name: string;
   records: EpisodeRecord[];
+  /** Rewards recomputed by replaying the records, by record position. */
+  recomputed?: Map<number, Recomputed>;
+  recomputing?: boolean;
 }
 
 function Spoiler({ hint, children, initiallyOpen }: { hint: string; children: React.ReactNode; initiallyOpen: boolean }) {
@@ -341,19 +344,38 @@ export function OpenFileButton({ onOpen }: { onOpen: (file: File) => void }) {
   );
 }
 
+/** Result of replaying one record of an opened file: its recomputed reward, or why it could not be replayed. */
+export type Recomputed = { reward: number; reason: string } | { error: string };
+
 function OpenedFileList({
   file,
   onOpen,
   onClose,
+  onRecompute,
 }: {
   file: OpenedFile;
   onOpen: (r: EpisodeRecord) => void;
   onClose: () => void;
+  onRecompute: () => void;
 }) {
   const t = useT();
-  const avg = averageReward(
-    file.records.filter((r) => r.reward !== null).map((r) => ({ task: String(r.taskId), reward: r.reward! })),
-  );
+  const results = file.recomputed ?? null;
+  const running = !!file.recomputing;
+  const recorded = file.records.filter((r) => r.reward !== null).map((r) => ({ task: String(r.taskId), reward: r.reward! }));
+  const avg = averageReward(recorded);
+  const passK = passHatK(recorded);
+
+  let same = 0;
+  let differ = 0;
+  let failed = 0;
+  for (const r of file.records) {
+    const c = results?.get(r.position);
+    if (!c) continue;
+    if ("error" in c) failed++;
+    else if (r.reward !== null && Math.abs(c.reward - r.reward) > 1e-6) differ++;
+    else same++;
+  }
+
   return (
     <section className="opened-file">
       <div className="row space">
@@ -367,7 +389,20 @@ function OpenedFileList({
       <p className="muted small">
         {t("openedCount", { n: file.records.length })}
         {avg !== null && ` · ${t("batchAvg", { avg: avg.toFixed(3) })}`}
+        {passK.length > 1 && passK.map(({ k, value }) => ` · pass^${k} ${value.toFixed(3)}`).join("")}
       </p>
+      <div className="row space verify-row">
+        <span className="small">
+          {running
+            ? t("verifyRunning", { done: results?.size ?? 0, total: file.records.length })
+            : results
+              ? t("verifySummary", { same, differ, failed })
+              : t("verifyHint")}
+        </span>
+        <button type="button" className="btn btn-small" disabled={running} onClick={onRecompute}>
+          {t("verifyRun")}
+        </button>
+      </div>
       <table className="history">
         <thead>
           <tr>
@@ -375,24 +410,37 @@ function OpenedFileList({
             <th>{t("colTask")}</th>
             <th>{t("colTrial")}</th>
             <th>{t("colReward")}</th>
+            {results && <th>{t("colRecomputed")}</th>}
           </tr>
         </thead>
         <tbody>
-          {file.records.map((r) => (
-            <tr key={r.position}>
-              <td>{r.position + 1}</td>
-              <td>
-                <button type="button" className="link-btn" title={t("historyOpen")} onClick={() => onOpen(r)}>
-                  {r.domain ?? "?"}
-                  {r.split ? `/${r.split}` : ""}#{r.taskId ?? "?"}
-                </button>
-              </td>
-              <td>{r.trial !== null ? r.trial + 1 : ""}</td>
-              <td className={r.reward === null ? "" : isSuccess(r.reward) ? "check-ok" : "check-bad"}>
-                {r.reward?.toFixed(1) ?? "–"}
-              </td>
-            </tr>
-          ))}
+          {file.records.map((r) => {
+            const c = results?.get(r.position);
+            const differs = c && !("error" in c) && r.reward !== null && Math.abs(c.reward - r.reward) > 1e-6;
+            return (
+              <tr key={r.position} className={differs ? "differs" : undefined}>
+                <td>{r.position + 1}</td>
+                <td>
+                  <button type="button" className="link-btn" title={t("historyOpen")} onClick={() => onOpen(r)}>
+                    {r.domain ?? "?"}
+                    {r.split ? `/${r.split}` : ""}#{r.taskId ?? "?"}
+                  </button>
+                </td>
+                <td>{r.trial !== null ? r.trial + 1 : ""}</td>
+                <td className={r.reward === null ? "" : isSuccess(r.reward) ? "check-ok" : "check-bad"}>
+                  {r.reward?.toFixed(1) ?? "–"}
+                </td>
+                {results && (
+                  <td
+                    className={!c || "error" in c ? "muted" : isSuccess(c.reward) ? "check-ok" : "check-bad"}
+                    title={c ? ("error" in c ? c.error : c.reason) : undefined}
+                  >
+                    {!c ? "" : "error" in c ? "!" : `${differs ? "≠ " : ""}${c.reward.toFixed(1)}`}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </section>
@@ -448,6 +496,7 @@ function HistoryTab({
   onOpenFile,
   onOpenRecord,
   onCloseFile,
+  onRecompute,
 }: {
   entries: HistoryEntry[];
   onClear: () => void;
@@ -456,6 +505,7 @@ function HistoryTab({
   onOpenFile: (file: File) => void;
   onOpenRecord: (r: EpisodeRecord) => void;
   onCloseFile: () => void;
+  onRecompute: () => void;
 }) {
   const t = useT();
   const avg = averageReward(entries.map((e) => ({ task: "", reward: e.reward })));
@@ -465,7 +515,7 @@ function HistoryTab({
         <span className="muted small">{t("openFileHint")}</span>
         <OpenFileButton onOpen={onOpenFile} />
       </div>
-      {opened && <OpenedFileList file={opened} onOpen={onOpenRecord} onClose={onCloseFile} />}
+      {opened && <OpenedFileList file={opened} onOpen={onOpenRecord} onClose={onCloseFile} onRecompute={onRecompute} />}
       <h3>{t("historyLocal")}</h3>
       {entries.length === 0 ? (
         <p className="muted">{t("historyEmpty")}</p>
@@ -531,6 +581,7 @@ export function Inspector({
   onOpenFile,
   onOpenRecord,
   onCloseFile,
+  onRecompute,
   onUseTool,
 }: {
   tab: InspectorTab;
@@ -550,6 +601,7 @@ export function Inspector({
   onOpenFile: (file: File) => void;
   onOpenRecord: (r: EpisodeRecord) => void;
   onCloseFile: () => void;
+  onRecompute: () => void;
   onUseTool: (name: string) => void;
 }) {
   const t = useT();
@@ -604,6 +656,7 @@ export function Inspector({
             onOpenFile={onOpenFile}
             onOpenRecord={onOpenRecord}
             onCloseFile={onCloseFile}
+            onRecompute={onRecompute}
           />
         ) : !domain || !task ? (
           <div className="tab-body muted">{t("loading")}</div>

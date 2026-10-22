@@ -4,8 +4,9 @@
  * run.py (a list of EnvRunResult: task_id, reward, info, traj, trial).
  */
 import type { ChatMessage } from "../llm/client";
+import { DEFAULT_MODEL } from "../llm/providers";
 import { DOMAIN_SPLITS, type Domain, type DomainName, type Task, parseTasks } from "./env";
-import type { Controller, EndReason, ReplaySource, Role } from "./episode";
+import { type Controller, type EndReason, Episode, type ReplaySource, type Role } from "./episode";
 import { PyDict, PyFloat, type PyValue, jsonDumps, parseJson, toPlain } from "./py";
 
 export interface EpisodeRecord {
@@ -211,4 +212,24 @@ export async function resolveRecord(record: EpisodeRecord, loaders: Loaders): Pr
     },
     maxAgentSteps,
   };
+}
+
+/** Rebuild a record as a finished episode (see Episode.replay). No model is ever called for it. */
+export async function replayRecord(record: EpisodeRecord, loaders: Loaders, label = ""): Promise<Episode> {
+  const r = await resolveRecord(record, loaders);
+  return Episode.replay(
+    {
+      domain: r.domain,
+      task: r.task,
+      taskRef: r.taskRef,
+      controllers: { agent: record.controllers.agent ?? "model", user: record.controllers.user ?? "model" },
+      modelFor: () => DEFAULT_MODEL,
+      maxAgentSteps: r.maxAgentSteps,
+      resolveEndpoint: () => {
+        throw new Error("A replayed episode does not call models.");
+      },
+      replayOf: label,
+    },
+    r.source,
+  );
 }

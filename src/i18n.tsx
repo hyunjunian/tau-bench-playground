@@ -236,6 +236,11 @@ const en = {
   openedFile: "Opened file",
   openedCount: "{n} episodes",
   openFailed: "Could not open the episode: {error}",
+  verifyHint: "Check every recorded reward by replaying the trajectories here.",
+  verifyRun: "Recompute rewards",
+  verifyRunning: "Recomputing… {done}/{total}",
+  verifySummary: "Recomputed: {same} match the file, {differ} differ (≠), {failed} could not be replayed (!).",
+  colRecomputed: "Recomputed",
   replayBadge: "replay",
   replayNote:
     "Rebuilt from a saved trajectory: every tool call was run again on a fresh database and the reward was recomputed.",
@@ -476,6 +481,11 @@ const ko: Dict = {
   openedFile: "연 파일",
   openedCount: "에피소드 {n}개",
   openFailed: "에피소드를 열지 못했습니다: {error}",
+  verifyHint: "모든 궤적을 여기서 다시 실행해 기록된 reward를 확인합니다.",
+  verifyRun: "reward 다시 계산",
+  verifyRunning: "다시 계산 중… {done}/{total}",
+  verifySummary: "다시 계산: {same}개 일치, {differ}개 다름(≠), {failed}개 다시 실행 못 함(!).",
+  colRecomputed: "다시 계산",
   replayBadge: "다시 보기",
   replayNote: "저장된 궤적으로 다시 만든 에피소드입니다. 모든 툴 호출을 새 데이터베이스에서 다시 실행하고 reward를 다시 계산했습니다.",
 };
