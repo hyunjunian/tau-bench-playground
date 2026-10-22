@@ -401,6 +401,8 @@ export default function App() {
               settings={settings}
               update={update}
               taskCount={taskCount}
+              tasks={taskCount !== null ? tasks : null}
+              history={history.entries}
               loading={loading}
               loadError={loadError}
               episodeRunning={running}

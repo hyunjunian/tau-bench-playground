@@ -21,7 +21,7 @@ function StatusBar({ episode, state }: { episode: Episode; state: EpisodeState }
   const role = state.turn;
   const label = role === "agent" ? t("thinkingAgent") : t("thinkingUser");
   return (
-    <div className="status-bar">
+    <div className="status-bar" role="status">
       {state.busy ? (
         <span className="status">
           <span className="spinner" aria-hidden />

@@ -1,15 +1,20 @@
 import { useState } from "react";
 import { useT } from "../i18n";
 import { type Endpoint, PROVIDERS, type ProviderId } from "../llm/providers";
+import type { HistoryEntry } from "../state/history";
 import type { RoleSettings, Settings } from "../state/settings";
-import { DOMAIN_SPLITS, type DomainName } from "../tau/env";
+import { DOMAIN_SPLITS, type DomainName, type Task } from "../tau/env";
 import type { Controller, Role } from "../tau/episode";
 import { ModelPicker } from "./ModelPicker";
+import { TaskPicker } from "./TaskPicker";
 
 interface Props {
   settings: Settings;
   update: (patch: Partial<Settings> | ((s: Settings) => Settings)) => void;
   taskCount: number | null;
+  /** Tasks of the selected domain and split, once loaded. */
+  tasks: Task[] | null;
+  history: HistoryEntry[];
   loading: boolean;
   loadError: string | null;
   episodeRunning: boolean;
@@ -189,6 +194,8 @@ export function SetupPanel({
   settings,
   update,
   taskCount,
+  tasks,
+  history,
   loading,
   loadError,
   episodeRunning,
@@ -198,6 +205,7 @@ export function SetupPanel({
   onBatch,
 }: Props) {
   const t = useT();
+  const [picking, setPicking] = useState(false);
   const splits = DOMAIN_SPLITS[settings.domain];
   const max = taskCount ?? 0;
   const setTask = (i: number) => update({ taskIndex: Math.max(0, Math.min(max - 1, i)) });
@@ -259,9 +267,31 @@ export function SetupPanel({
               >
                 🎲
               </button>
+              <button
+                type="button"
+                className="btn btn-small"
+                title={t("pickerTitle")}
+                aria-label={t("pickerTitle")}
+                disabled={!tasks}
+                onClick={() => setPicking(true)}
+              >
+                ☰
+              </button>
             </div>
           </label>
         </div>
+        {picking && tasks && (
+          <TaskPicker
+            domain={settings.domain}
+            split={settings.split}
+            tasks={tasks}
+            selected={settings.taskIndex}
+            history={history}
+            hideInstructions={settings.agent.controller === "human"}
+            onPick={(i) => setTask(i)}
+            onClose={() => setPicking(false)}
+          />
+        )}
         {loading && <small className="muted">{t("loading")}</small>}
         {loadError && <small className="error-text">{t("loadFailed", { error: loadError })}</small>}
       </section>
