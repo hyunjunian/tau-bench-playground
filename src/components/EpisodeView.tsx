@@ -1,20 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useT } from "../i18n";
 import type { Episode, EpisodeState } from "../tau/episode";
 import { type SuggestionSource, collectSuggestions } from "../ui/suggest";
+import { useNow } from "../ui/useNow";
 import { AgentComposer, UserComposer } from "./Composers";
 import type { PreferredTool } from "./ToolForm";
 import { Transcript } from "./Transcript";
-
-function useNow(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(id);
-  }, [active]);
-  return now;
-}
 
 function StatusBar({ episode, state }: { episode: Episode; state: EpisodeState }) {
   const t = useT();
@@ -81,6 +72,7 @@ function ResultBanner({
     transfer: t("doneTransfer"),
     max_steps: t("doneMaxSteps"),
     manual: t("doneManual"),
+    incomplete: t("doneIncomplete"),
     crash: t("doneCrash"),
   }[done.reason];
   const ok = done.reward === 1;

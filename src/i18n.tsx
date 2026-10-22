@@ -79,6 +79,7 @@ const en = {
   batchCellPending: "#{index} · trial {trial}: not run yet",
   batchCellRunning: "#{index} · trial {trial}: running",
   batchOpenHint: "Click a finished cell to open that episode.",
+  batchAutoRetry: "provider error: retrying in {s}s ({n}/{max})",
   confirmStopBatch: "This stops the batch run. Continue?",
 
   start: "Start episode",
@@ -94,6 +95,7 @@ const en = {
   welcomeStep1: "Pick a domain and task.",
   welcomeStep2: "Choose Human or Model for the agent and the user.",
   welcomeStep3: "Add a free API key if a model is involved, then start.",
+  welcomeOpen: "Have a downloaded episode or a tau-bench results file? Drop the JSON on this page to replay it, or",
 
   greetingLabel: "fixed opening line",
   userLabel: "User",
@@ -150,6 +152,7 @@ const en = {
   doneTransfer: "The agent transferred to a human agent.",
   doneMaxSteps: "Stopped after the maximum number of agent actions (tau-bench records reward 0).",
   doneManual: "Ended manually.",
+  doneIncomplete: "The recorded trajectory ends here (no ###STOP###, transfer or step limit).",
   doneCrash: "The environment crashed.",
   rewardLabel: "Reward",
   viewDetails: "Details",
@@ -312,6 +315,7 @@ const ko: Dict = {
   batchCellPending: "#{index} · {trial}번째 시도: 아직 실행 안 함",
   batchCellRunning: "#{index} · {trial}번째 시도: 실행 중",
   batchOpenHint: "끝난 칸을 누르면 그 에피소드를 엽니다.",
+  batchAutoRetry: "제공자 오류: {s}초 후 재시도 ({n}/{max})",
   confirmStopBatch: "일괄 실행을 멈춥니다. 계속할까요?",
 
   start: "에피소드 시작",
@@ -327,6 +331,7 @@ const ko: Dict = {
   welcomeStep1: "도메인과 태스크를 고르세요.",
   welcomeStep2: "에이전트와 유저를 각각 사람 또는 모델로 정하세요.",
   welcomeStep3: "모델을 쓰면 무료 API 키를 넣고 시작하세요.",
+  welcomeOpen: "내려받은 에피소드나 tau-bench 결과 파일이 있다면 JSON 파일을 이 페이지에 끌어다 놓아 다시 볼 수 있습니다. 또는",
 
   greetingLabel: "고정 첫 인사",
   userLabel: "유저",
@@ -383,6 +388,7 @@ const ko: Dict = {
   doneTransfer: "에이전트가 상담원에게 이관했습니다.",
   doneMaxSteps: "에이전트 최대 행동 수에 도달해 중단했습니다 (tau-bench는 reward 0으로 기록).",
   doneManual: "직접 종료했습니다.",
+  doneIncomplete: "저장된 궤적이 여기서 끝납니다 (###STOP###, 이관, 최대 행동 수 모두 없음).",
   doneCrash: "환경 오류로 종료되었습니다.",
   rewardLabel: "Reward",
   viewDetails: "상세 보기",

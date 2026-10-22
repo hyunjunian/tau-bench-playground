@@ -1,6 +1,7 @@
 import { useT } from "../i18n";
-import type { BatchResult, BatchRunRef, BatchState } from "../tau/batch";
+import { type BatchResult, type BatchRunRef, type BatchState, MAX_AUTO_RETRIES } from "../tau/batch";
 import { averageReward, isSuccess, passHatK } from "../tau/metrics";
+import { useNow } from "../ui/useNow";
 
 function cellClass(result: BatchResult | undefined, running: boolean): string {
   if (result) return isSuccess(result.reward) ? "cell ok" : "cell bad";
@@ -33,6 +34,7 @@ export function BatchCard({
   const first = plan.indices[0];
   const last = plan.indices[plan.indices.length - 1];
   const statusText = { running: t("batchRunning"), stopped: t("batchStopped"), done: t("batchDone") }[status];
+  const now = useNow(!!state.autoRetry);
 
   return (
     <div className={`batch-card is-${status}`}>
@@ -47,6 +49,15 @@ export function BatchCard({
             {statusText}
           </span>
           <span className="muted">{t("batchProgress", { done: results.length, total })}</span>
+          {state.autoRetry && (
+            <span className="batch-retry">
+              {t("batchAutoRetry", {
+                s: Math.max(0, Math.ceil((state.autoRetry.at - now) / 1000)),
+                n: state.autoRetry.attempt,
+                max: MAX_AUTO_RETRIES,
+              })}
+            </span>
+          )}
           {avg !== null && <strong className="batch-avg">{t("batchAvg", { avg: avg.toFixed(3) })}</strong>}
           {passK.length > 1 &&
             passK.map(({ k, value }) => (

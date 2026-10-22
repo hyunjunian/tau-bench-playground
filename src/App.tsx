@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { BatchCard } from "./components/BatchCard";
 import type { PreferredTool } from "./components/ToolForm";
 import { EpisodeView } from "./components/EpisodeView";
-import { Inspector, type InspectorTab, type OpenedFile } from "./components/Inspector";
+import { Inspector, type InspectorTab, OpenFileButton, type OpenedFile } from "./components/Inspector";
 import { SetupPanel } from "./components/SetupPanel";
 import { loadDomain, loadTasks } from "./data/loader";
 import { LangContext, makeT } from "./i18n";
@@ -65,6 +65,13 @@ export default function App() {
   useEffect(() => {
     document.documentElement.lang = settings.lang;
   }, [settings.lang]);
+
+  // Batch progress in the tab title, for runs left in a background tab.
+  const batchProgress =
+    batchState?.status === "running" ? `(${batchState.results.length}/${batchState.plan.indices.length * batchState.plan.trials}) ` : "";
+  useEffect(() => {
+    document.title = `${batchProgress}${t("appTitle")}`;
+  }, [batchProgress, t]);
 
   // The address bar names the selected task (#retail/test/12), so a task can be shared or bookmarked.
   const hash = taskHash(settings);
@@ -292,10 +299,33 @@ export default function App() {
       const records = parseRecordsFile(await file.text(), file.name);
       setOpened({ name: file.name, records });
       if (records.length === 1) void openRecord(records[0], file.name);
+      else setTab("history");
     } catch (e) {
       window.alert(t("openFailed", { error: e instanceof Error ? e.message : String(e) }));
     }
   };
+
+  // A JSON file dropped anywhere on the page is opened like "Open JSON…".
+  const openFileRef = useRef(openFile);
+  openFileRef.current = openFile;
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+    const over = (e: DragEvent) => {
+      if (hasFiles(e)) e.preventDefault();
+    };
+    const drop = (e: DragEvent) => {
+      const file = e.dataTransfer?.files?.[0];
+      if (!file) return;
+      e.preventDefault();
+      void openFileRef.current(file);
+    };
+    window.addEventListener("dragover", over);
+    window.addEventListener("drop", drop);
+    return () => {
+      window.removeEventListener("dragover", over);
+      window.removeEventListener("drop", drop);
+    };
+  }, []);
 
   const openHistoryEntry = async (entry: HistoryEntry) => {
     let text: string | null = null;
@@ -411,6 +441,9 @@ export default function App() {
                 <button type="button" className="btn btn-primary" disabled={loading || !task} onClick={startFromSettings}>
                   {t("start")}
                 </button>
+                <p className="welcome-open muted">
+                  {t("welcomeOpen")} <OpenFileButton onOpen={(f) => void openFile(f)} />
+                </p>
               </div>
             )}
           </section>

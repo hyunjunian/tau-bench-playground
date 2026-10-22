@@ -318,7 +318,7 @@ function formatWhen(iso: string): string {
     : d.toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-function OpenFileButton({ onOpen }: { onOpen: (file: File) => void }) {
+export function OpenFileButton({ onOpen }: { onOpen: (file: File) => void }) {
   const t = useT();
   const input = useRef<HTMLInputElement>(null);
   return (
@@ -351,7 +351,9 @@ function OpenedFileList({
   onClose: () => void;
 }) {
   const t = useT();
-  const avg = averageReward(file.records.filter((r) => r.reward !== null).map((r) => ({ task: String(r.taskId), reward: r.reward! })));
+  const avg = averageReward(
+    file.records.filter((r) => r.reward !== null).map((r) => ({ task: String(r.taskId), reward: r.reward! })),
+  );
   return (
     <section className="opened-file">
       <div className="row space">
@@ -386,7 +388,9 @@ function OpenedFileList({
                 </button>
               </td>
               <td>{r.trial !== null ? r.trial + 1 : ""}</td>
-              <td className={r.reward === null ? "" : isSuccess(r.reward) ? "check-ok" : "check-bad"}>{r.reward?.toFixed(1) ?? "–"}</td>
+              <td className={r.reward === null ? "" : isSuccess(r.reward) ? "check-ok" : "check-bad"}>
+                {r.reward?.toFixed(1) ?? "–"}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -558,43 +562,66 @@ export function Inspector({
     ["history", t("tabHistory")],
   ];
   const canUseTool = !!state && state.turn === "agent" && !!episode && episode.controllerOf("agent") === "human";
+  // Arrow keys move between tabs (WAI-ARIA tabs pattern).
+  const onTabKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const buttons = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("[role=tab]"));
+    const focused = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const i = focused >= 0 ? focused : tabs.findIndex(([id]) => id === tab);
+    const j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (j === undefined) return;
+    e.preventDefault();
+    const next = (j + tabs.length) % tabs.length;
+    setTab(tabs[next][0]);
+    buttons[next]?.focus();
+  };
   return (
     <div className="inspector">
-      <div className="tabs" role="tablist">
+      <div className="tabs" role="tablist" onKeyDown={onTabKey}>
         {tabs.map(([id, label]) => (
-          <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
+          <button
+            key={id}
+            id={`inspector-tab-${id}`}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            aria-controls="inspector-panel"
+            tabIndex={tab === id ? 0 : -1}
+            className={tab === id ? "active" : ""}
+            onClick={() => setTab(id)}
+          >
             {label}
             {id === "result" && state?.done && <span className={`dot ${state.done.reward === 1 ? "ok" : "bad"}`} />}
           </button>
         ))}
       </div>
-      {tab === "history" ? (
-        <HistoryTab
-          entries={history}
-          onClear={onClearHistory}
-          onOpenEntry={onOpenHistory}
-          opened={opened}
-          onOpenFile={onOpenFile}
-          onOpenRecord={onOpenRecord}
-          onCloseFile={onCloseFile}
-        />
-      ) : !domain || !task ? (
-        <div className="tab-body muted">{t("loading")}</div>
-      ) : tab === "task" ? (
-        <TaskTab task={task} agentIsHuman={agentIsHuman} done={taskDone} />
-      ) : tab === "policy" ? (
-        <div className="tab-body">
-          <p className="note">{t("policyNote")}</p>
-          <Markdown text={domain.wiki} className="policy" />
-        </div>
-      ) : tab === "tools" ? (
-        <ToolsTab domain={domain} onUse={onUseTool} canUse={canUseTool} />
-      ) : tab === "result" ? (
-        <ResultTab episode={episode} state={state} />
-      ) : (
-        <DataTab domain={domain} episode={episode} />
-      )}
+      <div className="tab-panel" role="tabpanel" id="inspector-panel" aria-labelledby={`inspector-tab-${tab}`}>
+        {tab === "history" ? (
+          <HistoryTab
+            entries={history}
+            onClear={onClearHistory}
+            onOpenEntry={onOpenHistory}
+            opened={opened}
+            onOpenFile={onOpenFile}
+            onOpenRecord={onOpenRecord}
+            onCloseFile={onCloseFile}
+          />
+        ) : !domain || !task ? (
+          <div className="tab-body muted">{t("loading")}</div>
+        ) : tab === "task" ? (
+          <TaskTab task={task} agentIsHuman={agentIsHuman} done={taskDone} />
+        ) : tab === "policy" ? (
+          <div className="tab-body">
+            <p className="note">{t("policyNote")}</p>
+            <Markdown text={domain.wiki} className="policy" />
+          </div>
+        ) : tab === "tools" ? (
+          <ToolsTab domain={domain} onUse={onUseTool} canUse={canUseTool} />
+        ) : tab === "result" ? (
+          <ResultTab episode={episode} state={state} />
+        ) : (
+          <DataTab domain={domain} episode={episode} />
+        )}
+      </div>
     </div>
   );
 }
-

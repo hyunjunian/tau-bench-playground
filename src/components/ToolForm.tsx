@@ -197,7 +197,15 @@ export function ToolForm({
   };
 
   return (
-    <div className="tool-form">
+    <div
+      className="tool-form"
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          submit();
+        }
+      }}
+    >
       <div className="row">
         <label className="field grow">
           <span>{t("chooseTool")}</span>
@@ -306,7 +314,7 @@ export function ToolForm({
       )}
       {error && <div className="error-text">{error}</div>}
       <div className="row end">
-        <button type="button" className="btn btn-primary" onClick={submit}>
+        <button type="button" className="btn btn-primary" title="Ctrl+Enter" onClick={submit}>
           {t("runTool")}
         </button>
       </div>

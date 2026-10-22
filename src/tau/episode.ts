@@ -73,7 +73,8 @@ export type Item =
 
 type NewItem = Item extends infer T ? (T extends Item ? Omit<T, "id"> : never) : never;
 
-export type EndReason = "user_stop" | "transfer" | "max_steps" | "manual" | "crash";
+/** `incomplete`: a replayed trajectory that stops without a reason (no ###STOP###, transfer or step limit). */
+export type EndReason = "user_stop" | "transfer" | "max_steps" | "manual" | "crash" | "incomplete";
 
 export interface EpisodeResult {
   reason: EndReason;
@@ -89,7 +90,8 @@ export interface EpisodeState {
   turn: Role | null;
   busy: boolean;
   retry: { until: number; reason: string } | null;
-  error: { role: Role; message: string } | null;
+  /** `retryable`: a transient provider problem (network, 5xx, rate limit) rather than a bad model output or setting. */
+  error: { role: Role; message: string; retryable: boolean } | null;
   paused: boolean;
   agentSteps: number;
   done: EpisodeResult | null;
@@ -363,7 +365,7 @@ export class Episode {
       return false;
     }
     const message = e instanceof LlmError || e instanceof StepError || e instanceof Error ? e.message : String(e);
-    this.update({ error: { role, message } });
+    this.update({ error: { role, message, retryable: e instanceof LlmError && e.retryable } });
     return false;
   }
 
@@ -567,7 +569,8 @@ export class Episode {
       if (recorded !== null) flagDifference(call.function.name, recorded, obs);
     }
     if (!ep.state.done) {
-      const reason = source.endReason && source.endReason !== "crash" ? source.endReason : ep.stepLimitReached() ? "max_steps" : "manual";
+      const reason =
+        source.endReason && source.endReason !== "crash" ? source.endReason : ep.stepLimitReached() ? "max_steps" : "incomplete";
       ep.finish(reason);
     }
     const done = ep.state.done;

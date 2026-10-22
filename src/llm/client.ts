@@ -264,6 +264,7 @@ export async function chatCompletion(req: CompletionRequest): Promise<Completion
       await sleep(waitMs, req.signal);
       continue;
     }
-    throw new LlmError(`HTTP ${res.status}: ${msg}`, res.status, res.status === 429 || res.status >= 500);
+    const retryable = (res.status === 429 && !isDailyQuota(text)) || res.status >= 500;
+    throw new LlmError(`HTTP ${res.status}: ${msg}`, res.status, retryable);
   }
 }

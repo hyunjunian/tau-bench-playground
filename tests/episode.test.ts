@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ChatMessage } from "../src/llm/client";
-import { BatchRun } from "../src/tau/batch";
+import { BatchRun, MAX_AUTO_RETRIES } from "../src/tau/batch";
 import { Domain, type DomainName, type Task, TauEnv, type ToolSpec, parseTasks } from "../src/tau/env";
 import { Episode, type EpisodeSetup } from "../src/tau/episode";
 import { averageReward, comb, passHatK } from "../src/tau/metrics";
@@ -325,6 +325,16 @@ describe("replaying saved episodes", () => {
     expect(ep.getState().items.some((i) => i.kind === "notice")).toBe(false);
   });
 
+  it("marks a trajectory that just stops as incomplete", async () => {
+    const record = toolCallingRecord(domains.retail, tasksFor("retail", "test")[0], 0);
+    record.traj = (record.traj as unknown[]).slice(0, 6);
+    const [parsed] = parseRecordsFile(JSON.stringify([record]));
+    const resolved = await resolveRecord(parsed, loaders);
+    const ep = Episode.replay(setupFor(resolved.domain, resolved.task, 0), resolved.source);
+    expect(ep.getState().done).toMatchObject({ reason: "incomplete", reward: 0 });
+    expect(ep.getState().agentSteps).toBe(2);
+  });
+
   it("reports runs that crashed in tau-bench", async () => {
     const [parsed] = parseRecordsFile(JSON.stringify([{ task_id: 3, reward: 0.0, info: { error: "boom" }, traj: [], trial: 0 }]));
     await expect(resolveRecord(parsed, loaders)).rejects.toThrow("boom");
@@ -360,7 +370,7 @@ describe("BatchRun", () => {
         ep.start();
         return ep;
       },
-      0,
+      { gapMs: 0 },
     );
     const finished = new Promise<void>((resolve) => batch.subscribe(() => batch.getState().status === "done" && resolve()));
     batch.start();
@@ -372,11 +382,54 @@ describe("BatchRun", () => {
     expect(batch.exportResults()).toHaveLength(6);
   });
 
+  it("retries transient errors on its own, a few times", async () => {
+    const listeners = new Set<() => void>();
+    let state: { done: null; error: { role: "agent"; message: string; retryable: boolean } | null } = { done: null, error: null };
+    let retries = 0;
+    const fake = {
+      subscribe: (l: () => void) => (listeners.add(l), () => listeners.delete(l)),
+      getState: () => state,
+      retry: () => {
+        retries++;
+        state = { ...state, error: null };
+        listeners.forEach((l) => l());
+      },
+      abort() {},
+      resume() {},
+    } as unknown as Episode;
+    const fail = (retryable: boolean) => {
+      state = { ...state, error: { role: "agent", message: "HTTP 503", retryable } };
+      listeners.forEach((l) => l());
+    };
+    const batch = new BatchRun({ domain: "retail", split: "test", indices: [0], trials: 1 }, () => fake, { retryMs: 1 });
+    batch.start();
+    for (let i = 0; i < MAX_AUTO_RETRIES + 2; i++) {
+      fail(true);
+      await new Promise((r) => setTimeout(r, 15));
+    }
+    expect(retries).toBe(MAX_AUTO_RETRIES);
+    expect(batch.getState().autoRetry).toBeNull();
+
+    // a bad model output or a missing key waits for the user
+    const other = new BatchRun({ domain: "retail", split: "test", indices: [0], trials: 1 }, () => fake, { retryMs: 1 });
+    retries = 0;
+    state = { done: null, error: null };
+    other.start();
+    fail(false);
+    await new Promise((r) => setTimeout(r, 15));
+    expect(retries).toBe(0);
+  });
+
   it("puts a detached run back in the queue", () => {
     const launched: number[] = [];
     const batch = new BatchRun({ domain: "retail", split: "test", indices: [0, 1], trials: 1 }, (run) => {
       launched.push(run.index);
-      return { abort() {}, resume() {}, getState: () => ({ done: null }) } as unknown as Episode;
+      return {
+        abort() {},
+        resume() {},
+        subscribe: () => () => {},
+        getState: () => ({ done: null, error: null }),
+      } as unknown as Episode;
     });
     batch.start();
     expect(batch.getState().current).toEqual({ index: 0, trial: 0 });

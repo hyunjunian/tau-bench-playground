@@ -31,6 +31,8 @@ export interface BatchResult extends BatchRunRef {
 export interface BatchState {
   plan: BatchPlan;
   status: "running" | "stopped" | "done";
+  /** Set while waiting to retry the current episode after a transient error. */
+  autoRetry: { at: number; attempt: number } | null;
   /** Runs not started yet, in order. */
   pending: BatchRunRef[];
   current: BatchRunRef | null;
@@ -41,25 +43,48 @@ export interface BatchState {
 /** Starts the episode for one run and calls `onFinish` when it ends. */
 export type LaunchRun = (run: BatchRunRef, onFinish: (episode: Episode) => void) => Episode;
 
-/** Pause between episodes so the finished one stays on screen for a moment. */
-const GAP_MS = 800;
+export interface BatchOptions {
+  /** Pause between episodes so the finished one stays on screen for a moment. */
+  gapMs?: number;
+  /** Wait before retrying after a transient error; grows with each attempt. */
+  retryMs?: number;
+}
+
+/** Transient errors (network, 5xx, rate limits) are retried this many times per episode before waiting for the user. */
+export const MAX_AUTO_RETRIES = 3;
 
 export class BatchRun {
   private state: BatchState;
   private listeners = new Set<() => void>();
   private episode: Episode | null = null;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  /** Bumped to cancel a scheduled start of the next run. */
+  private scheduled = 0;
+  private unwatch: (() => void) | null = null;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private attempts = 0;
+  private readonly gapMs: number;
+  private readonly retryMs: number;
 
   constructor(
     plan: BatchPlan,
     private readonly launch: LaunchRun,
-    private readonly gapMs = GAP_MS,
+    options: BatchOptions = {},
   ) {
+    this.gapMs = options.gapMs ?? 800;
+    this.retryMs = options.retryMs ?? 30_000;
     const pending: BatchRunRef[] = [];
     for (let trial = 0; trial < plan.trials; trial++) {
       for (const index of plan.indices) pending.push({ index, trial });
     }
-    this.state = { plan, status: "running", pending, current: null, results: [], startedAt: new Date().toISOString() };
+    this.state = {
+      plan,
+      status: "running",
+      autoRetry: null,
+      pending,
+      current: null,
+      results: [],
+      startedAt: new Date().toISOString(),
+    };
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -86,23 +111,30 @@ export class BatchRun {
   /** Stop after aborting the request in flight; the current episode stays open and paused. */
   stop() {
     if (this.state.status !== "running") return;
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
+    this.scheduled++;
+    this.cancelRetry();
     this.update({ status: "stopped" });
     this.episode?.abort();
   }
 
   resume() {
     if (this.state.status !== "stopped") return;
+    this.scheduled++;
     this.update({ status: "running" });
-    if (this.episode && !this.episode.getState().done) this.episode.resume();
-    else this.next();
+    const ep = this.episode;
+    if (ep && !ep.getState().done) {
+      this.attempts = 0;
+      ep.resume(); // stop() paused it
+      if (ep.getState().error) ep.retry();
+    } else this.next();
   }
 
   /** Forget the episode in flight without recording it (the user replaced it). */
   detach() {
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = null;
+    this.scheduled++;
+    this.cancelRetry();
+    this.unwatch?.();
+    this.unwatch = null;
     this.episode = null;
     const current = this.state.current;
     this.update({
@@ -112,8 +144,15 @@ export class BatchRun {
     });
   }
 
+  private schedule() {
+    const token = ++this.scheduled;
+    const go = () => this.scheduled === token && this.next();
+    // Background tabs throttle timers (down to once a minute), so don't pause there.
+    if (typeof document !== "undefined" && document.hidden) void Promise.resolve().then(go);
+    else setTimeout(go, this.gapMs);
+  }
+
   private next() {
-    this.timer = null;
     if (this.state.status !== "running") return;
     const [head, ...rest] = this.state.pending;
     if (!head) {
@@ -121,7 +160,34 @@ export class BatchRun {
       return;
     }
     this.update({ pending: rest, current: head });
-    this.episode = this.launch(head, (ep) => this.finished(ep, head));
+    const episode = this.launch(head, (ep) => this.finished(ep, head));
+    this.episode = episode;
+    this.attempts = 0;
+    this.unwatch?.();
+    this.unwatch = episode.subscribe(() => this.watch(episode));
+    this.watch(episode);
+  }
+
+  /** Retry transient errors on our own, so an unattended batch survives a flaky provider. */
+  private watch(episode: Episode) {
+    if (episode !== this.episode) return;
+    const error = episode.getState().error;
+    if (!error || !error.retryable || this.retryTimer || this.state.status !== "running") return;
+    if (this.attempts >= MAX_AUTO_RETRIES) return;
+    this.attempts++;
+    const delay = this.retryMs * this.attempts;
+    this.update({ autoRetry: { at: Date.now() + delay, attempt: this.attempts } });
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = null;
+      this.update({ autoRetry: null });
+      if (episode === this.episode && this.state.status === "running") episode.retry();
+    }, delay);
+  }
+
+  private cancelRetry() {
+    if (this.retryTimer) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    if (this.state.autoRetry) this.update({ autoRetry: null });
   }
 
   private finished(episode: Episode, run: BatchRunRef) {
@@ -131,13 +197,16 @@ export class BatchRun {
     if (!s.done) return;
     const record = { ...episode.toJSON(), trial: run.trial };
     const result: BatchResult = { ...run, reward: s.done.reward, reason: s.done.reason, steps: s.agentSteps, record };
+    this.cancelRetry();
+    this.unwatch?.();
+    this.unwatch = null;
     this.episode = null;
     this.update({ results: [...this.state.results, result], current: null });
     if (this.state.pending.length === 0) {
       this.update({ status: "done" });
       return;
     }
-    if (this.state.status === "running") this.timer = setTimeout(() => this.next(), this.gapMs);
+    if (this.state.status === "running") this.schedule();
   }
 
   /** tau-bench style results file: one EnvRunResult-like record per episode. */
