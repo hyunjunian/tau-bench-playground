@@ -466,6 +466,13 @@ describe("replaying saved episodes", () => {
     expect((await replayRecord(parsed, loaders)).getState().done?.reward).toBe(1);
   });
 
+  it("prefers an exact task match to one that only shares the ground truth", async () => {
+    const tasks = tasksFor("retail", "test"); // tasks 36 and 37 differ only in their instruction
+    expect(tasks[37].instruction).not.toBe(tasks[36].instruction);
+    const [parsed] = parseRecordsFile(JSON.stringify([toolCallingRecord(domains.retail, tasks[36], 37)]));
+    expect((await resolveRecord(parsed, loaders)).taskRef).toEqual({ domain: "retail", split: "test", index: 36 });
+  });
+
   it("marks a trajectory that just stops as incomplete", async () => {
     const record = toolCallingRecord(domains.retail, tasksFor("retail", "test")[0], 0);
     record.traj = (record.traj as unknown[]).slice(0, 6);

@@ -221,8 +221,11 @@ export default function App() {
     } = {},
   ): Episode => {
     const s = settingsRef.current;
-    cancelDownload();
-    setFileParam(null); // reloading should show this episode's task, not reopen the file
+    if (!opts.unattended) {
+      // The user moved on: reloading should show this episode's task, not reopen a file.
+      cancelDownload();
+      setFileParam(null);
+    }
     const ep = new Episode({
       domain: spec.domain,
       task: spec.task,
@@ -437,9 +440,10 @@ export default function App() {
       window.alert(t("openFailed", { error: `${file.name}: ${e instanceof Error ? e.message : String(e)}` }));
       return;
     }
-    cancelDownload();
-    setFileParam(null);
-    openText(text, file.name);
+    if (openText(text, file.name)) {
+      cancelDownload();
+      setFileParam(null);
+    }
   };
 
   /** A saved file on the web (it must allow cross-origin reads, as raw.githubusercontent.com does). */
@@ -683,6 +687,7 @@ export default function App() {
               downloading={downloading}
               onOpenRecord={(r) => void openRecord(r, `${opened?.name ?? ""} · ${r.position + 1}`)}
               onCloseFile={() => {
+                cancelDownload();
                 setOpened(null);
                 setFileParam(null);
               }}

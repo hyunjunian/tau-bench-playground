@@ -546,6 +546,7 @@ export function SampleRunLinks({ onOpenUrl, downloading }: { onOpenUrl: (url: st
             href={`?file=${encodeURIComponent(s.url)}`}
             title={`${s.file} (${s.mb} MB)`}
             onClick={(e) => {
+              if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; // new tab or window
               e.preventDefault();
               onOpenUrl(s.url);
             }}

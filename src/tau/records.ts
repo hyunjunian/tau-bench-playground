@@ -221,8 +221,6 @@ export async function resolveRecord(record: EpisodeRecord, loaders: Loaders): Pr
     const tasks = await loaders.loadTasks(domainName, preferred);
     const t = tasks[record.taskId];
     if (t && (!record.task || sameTask(t, record.task))) found = { split: preferred, index: record.taskId, task: t };
-    // Keep the wording the user simulator was given; the reward is the same.
-    else if (t && record.task && sameGroundTruth(t, record.task)) found = { split: preferred, index: record.taskId, task: record.task };
   }
   if (!found && record.task) {
     for (const split of [preferred, ...splits.filter((s) => s !== preferred)]) {
@@ -233,6 +231,12 @@ export async function resolveRecord(record: EpisodeRecord, loaders: Loaders): Pr
         break;
       }
     }
+  }
+  if (!found && record.task && record.taskId !== null) {
+    // The same task with its instruction reworded since the run: keep the wording the user simulator was
+    // given (the reward is the same). Only after an exact match failed, since some tasks differ only in wording.
+    const t = (await loaders.loadTasks(domainName, preferred))[record.taskId];
+    if (t && sameGroundTruth(t, record.task)) found = { split: preferred, index: record.taskId, task: record.task };
   }
   if (!found) {
     if (!record.task) throw new Error("The task of this record is not in the dataset and the file does not include it.");
