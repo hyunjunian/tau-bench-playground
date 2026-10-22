@@ -9,9 +9,11 @@
   --accent: #4f46e5;
   --accent-soft: #eef0ff;
   --accent-text: #3b33c6;
+  /* text on --accent backgrounds (primary buttons, selected segments) */
+  --on-accent: #ffffff;
   --agent: #4f46e5;
   --agent-soft: #f1f2ff;
-  --user: #0b8a7d;
+  --user: #0a7a6e;
   --user-soft: #eefaf8;
   --tool: #b15a0a;
   --tool-soft: #fff6e9;
@@ -43,6 +45,7 @@
     --accent: #818cf8;
     --accent-soft: #23264a;
     --accent-text: #c3c8ff;
+    --on-accent: #0e1015;
     --agent: #8b93fb;
     --agent-soft: #1d2040;
     --user: #34d3bf;
@@ -73,6 +76,7 @@
   --accent: #818cf8;
   --accent-soft: #23264a;
   --accent-text: #c3c8ff;
+  --on-accent: #0e1015;
   --agent: #8b93fb;
   --agent-soft: #1d2040;
   --user: #34d3bf;
@@ -345,7 +349,7 @@ h3 {
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 .btn-primary:hover:not(:disabled) {
@@ -488,7 +492,7 @@ input[type="number"] {
 }
 .segmented button.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 .theme-toggle {
@@ -878,6 +882,9 @@ input[type="number"] {
 .picker-list button.active {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+.picker-list button.active .picker-index {
+  color: var(--accent-text);
 }
 .picker-list button:focus-visible {
   outline: 2px solid var(--accent);

@@ -112,7 +112,7 @@ export function BatchCard({
           )}
         </div>
       </div>
-      <div className="progress" role="progressbar" aria-valuemin={0} aria-valuemax={total} aria-valuenow={results.length}>
+      <div className="progress" role="progressbar" aria-label={t("batchTitle")} aria-valuemin={0} aria-valuemax={total} aria-valuenow={results.length}>
         <div style={{ width: `${total ? (100 * results.length) / total : 0}%` }} />
       </div>
       <div className="batch-grid" title={t("batchOpenHint")}>

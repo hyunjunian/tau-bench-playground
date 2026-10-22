@@ -501,7 +501,7 @@ export default function App() {
         </header>
 
         <main className="layout">
-          <aside className="col col-setup">
+          <aside className="col col-setup" aria-label={t("asideSetup")}>
             <SetupPanel
               settings={settings}
               update={update}
@@ -562,7 +562,7 @@ export default function App() {
             )}
           </section>
 
-          <aside className="col col-inspector">
+          <aside className="col col-inspector" aria-label={t("asideInspector")}>
             <Inspector
               tab={tab}
               setTab={setTab}
