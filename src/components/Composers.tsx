@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useT } from "../i18n";
 import { STOP_TOKEN, type ToolInfo } from "../tau/env";
 import type { PyDict } from "../tau/py";
-import { ToolForm } from "./ToolForm";
+import type { Suggestions } from "../ui/suggest";
+import { type PreferredTool, ToolForm } from "./ToolForm";
 
 function MessageBox({ placeholder, onSend, extra }: { placeholder: string; onSend: (text: string) => void; extra?: React.ReactNode }) {
   const t = useT();
@@ -40,11 +41,13 @@ function MessageBox({ placeholder, onSend, extra }: { placeholder: string; onSen
 export function AgentComposer({
   tools,
   preferredTool,
+  suggestions,
   onReply,
   onTool,
 }: {
   tools: ToolInfo[];
-  preferredTool: string | null;
+  preferredTool: PreferredTool | null;
+  suggestions: Suggestions;
   onReply: (text: string) => void;
   onTool: (name: string, kwargs: PyDict) => void;
 }) {
@@ -69,7 +72,7 @@ export function AgentComposer({
       {tab === "reply" ? (
         <MessageBox placeholder={t("replyPlaceholder")} onSend={onReply} />
       ) : (
-        <ToolForm tools={tools} preferred={preferredTool} onRun={onTool} />
+        <ToolForm tools={tools} preferred={preferredTool} suggestions={suggestions} onRun={onTool} />
       )}
     </div>
   );

@@ -83,13 +83,31 @@ export function sanitize(raw: unknown): Settings {
   return s;
 }
 
+export type TaskLink = Pick<Settings, "domain" | "split" | "taskIndex">;
+
+/** `#retail/test/12` -> that task, so a task can be linked to. */
+export function taskFromHash(hash: string): TaskLink | null {
+  const m = /^#\/?(retail|airline)\/([a-z]+)\/(\d+)$/.exec(hash);
+  if (!m) return null;
+  const domain = m[1] as DomainName;
+  if (!DOMAIN_SPLITS[domain].includes(m[2])) return null;
+  return { domain, split: m[2], taskIndex: Number(m[3]) };
+}
+
+export function taskHash(s: TaskLink): string {
+  return `#${s.domain}/${s.split}/${s.taskIndex}`;
+}
+
 function load(): Settings {
+  let settings: Settings;
   try {
     const text = localStorage.getItem(STORAGE_KEY);
-    return sanitize(text ? JSON.parse(text) : null);
+    settings = sanitize(text ? JSON.parse(text) : null);
   } catch {
-    return defaultSettings();
+    settings = defaultSettings();
   }
+  const link = typeof location === "undefined" ? null : taskFromHash(location.hash);
+  return link ? { ...settings, ...link } : settings;
 }
 
 export function useSettings(): [Settings, (patch: Partial<Settings> | ((s: Settings) => Settings)) => void] {

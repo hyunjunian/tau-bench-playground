@@ -30,7 +30,8 @@ function Reasoning({ text }: { text?: string }) {
 const ToolCard = memo(function ToolCard({ item }: { item: Extract<Item, { kind: "tool" }> }) {
   const t = useT();
   const short = item.observation.length <= 160 && !item.observation.includes("\n");
-  const [open, setOpen] = useState(item.error);
+  // A human agent needs to read what their own tool call returned.
+  const [open, setOpen] = useState(item.error || item.by === "human");
   const obs = prettyObservation(item.observation);
   return (
     <div className={`tool-card ${item.error ? "is-error" : ""}`}>

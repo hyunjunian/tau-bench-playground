@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { BatchCard } from "./components/BatchCard";
+import type { PreferredTool } from "./components/ToolForm";
 import { EpisodeView } from "./components/EpisodeView";
 import { Inspector, type InspectorTab, type OpenedFile } from "./components/Inspector";
 import { SetupPanel } from "./components/SetupPanel";
@@ -8,7 +9,7 @@ import { LangContext, makeT } from "./i18n";
 import { type Endpoint, type ModelConfig, PROVIDERS, type ProviderId } from "./llm/providers";
 import { archiveEpisode, loadArchivedEpisode } from "./state/archive";
 import { type HistoryEntry, useHistory } from "./state/history";
-import { useSettings } from "./state/settings";
+import { taskFromHash, taskHash, useSettings } from "./state/settings";
 import { BatchRun, type BatchResult, type BatchState } from "./tau/batch";
 import type { Domain, Task } from "./tau/env";
 import { type Controller, Episode, type EpisodeState, type Role } from "./tau/episode";
@@ -52,7 +53,8 @@ export default function App() {
   const batchState = useBatchState(batch);
   const [opened, setOpened] = useState<OpenedFile | null>(null);
   const [tab, setTab] = useState<InspectorTab>("task");
-  const [preferredTool, setPreferredTool] = useState<string | null>(null);
+  // A fresh object per click, so picking the same tool again still switches the form to it.
+  const [preferredTool, setPreferredTool] = useState<PreferredTool | null>(null);
 
   // Episodes read keys and model settings at call time, so fixes apply on retry.
   const settingsRef = useRef(settings);
@@ -64,6 +66,21 @@ export default function App() {
     document.documentElement.lang = settings.lang;
   }, [settings.lang]);
 
+  // The address bar names the selected task (#retail/test/12), so a task can be shared or bookmarked.
+  const hash = taskHash(settings);
+  useEffect(() => {
+    if (location.hash !== hash) window.history.replaceState(null, "", hash);
+  }, [hash]);
+
+  useEffect(() => {
+    const onHash = () => {
+      const link = taskFromHash(location.hash);
+      if (link) update(link);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [update]);
+
   useEffect(() => {
     let alive = true;
     setLoading(true);
@@ -73,6 +90,8 @@ export default function App() {
         if (!alive) return;
         setDomain(d);
         setTasks(ts);
+        // e.g. a link to #retail/test/999
+        update((s) => (s.taskIndex >= ts.length ? { ...s, taskIndex: Math.max(0, ts.length - 1) } : s));
       })
       .catch((e: unknown) => alive && setLoadError(e instanceof Error ? e.message : String(e)))
       .finally(() => alive && setLoading(false));
@@ -413,7 +432,7 @@ export default function App() {
               onOpenFile={(f) => void openFile(f)}
               onOpenRecord={(r) => void openRecord(r, `${opened?.name ?? ""} · ${r.position + 1}`)}
               onCloseFile={() => setOpened(null)}
-              onUseTool={(name) => setPreferredTool(name)}
+              onUseTool={(name) => setPreferredTool({ name })}
             />
           </aside>
         </main>

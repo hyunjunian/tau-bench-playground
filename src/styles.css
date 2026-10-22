@@ -1050,6 +1050,15 @@ input[type="number"] {
 .tool-fields fieldset {
   grid-column: 1 / -1;
 }
+.suggest-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.suggest-chips .chip {
+  font-size: 11px;
+  padding: 1px 8px;
+}
 .obj-row {
   display: flex;
   gap: 6px;

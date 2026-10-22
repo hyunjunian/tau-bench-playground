@@ -1,7 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { Episode, EpisodeState } from "../tau/episode";
+import { type SuggestionSource, collectSuggestions } from "../ui/suggest";
 import { AgentComposer, UserComposer } from "./Composers";
+import type { PreferredTool } from "./ToolForm";
 import { Transcript } from "./Transcript";
 
 function useNow(active: boolean): number {
@@ -133,7 +135,7 @@ export function EpisodeView({
 }: {
   episode: Episode;
   state: EpisodeState;
-  preferredTool: string | null;
+  preferredTool: PreferredTool | null;
   onDetails: () => void;
   onDownload: () => void;
   onAgain: () => void;
@@ -141,9 +143,24 @@ export function EpisodeView({
 }) {
   const t = useT();
   const { taskRef, domain, task } = episode.setup;
+  const root = useRef<HTMLDivElement>(null);
+  // On a phone the columns stack, so bring a new episode into view.
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 760px)").matches) root.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [episode]);
   const humanTurn = state.turn && episode.controllerOf(state.turn) === "human";
   const totalTokens = state.usage.agent.prompt + state.usage.agent.completion + state.usage.user.prompt + state.usage.user.completion;
   const userStarted = state.items.some((i) => i.kind === "user");
+  const humanAgent = episode.controllerOf("agent") === "human";
+  const suggestions = useMemo(() => {
+    if (!humanAgent) return new Map<string, string[]>();
+    const sources: SuggestionSource[] = [];
+    for (const i of state.items) {
+      if (i.kind === "tool") sources.push({ kind: "tool", name: i.name, observation: i.observation, error: i.error });
+      else if (i.kind === "user") sources.push({ kind: "user", text: i.text });
+    }
+    return collectSuggestions(sources);
+  }, [humanAgent, state.items]);
 
   let footer: React.ReactNode;
   if (state.done) {
@@ -168,6 +185,7 @@ export function EpisodeView({
       <AgentComposer
         tools={domain.toolsInfo}
         preferredTool={preferredTool}
+        suggestions={suggestions}
         onReply={(text) => episode.sendAgentReply(text)}
         onTool={(name, kwargs) => episode.callAgentTool(name, kwargs)}
       />
@@ -179,7 +197,7 @@ export function EpisodeView({
   }
 
   return (
-    <div className="episode">
+    <div className="episode" ref={root}>
       <div className="episode-head">
         <span className="pill">
           {taskRef.domain} · {taskRef.split} · #{taskRef.index}

@@ -135,6 +135,9 @@ const en = {
   addRow: "Add",
   removeRow: "Remove",
   listHint: "comma or space separated, order matters",
+  suggestions: "Values seen earlier in this conversation",
+  suggestionAdd: "Add to the list",
+  suggestionRemove: "Remove from the list",
   lastResult: "Last result",
 
   userInstructionTitle: "Your goal (task instruction)",
@@ -365,6 +368,9 @@ const ko: Dict = {
   addRow: "추가",
   removeRow: "삭제",
   listHint: "쉼표나 공백으로 구분, 순서 중요",
+  suggestions: "이 대화에서 앞서 나온 값",
+  suggestionAdd: "목록에 추가",
+  suggestionRemove: "목록에서 빼기",
   lastResult: "최근 결과",
 
   userInstructionTitle: "내 목표 (태스크 지시문)",
