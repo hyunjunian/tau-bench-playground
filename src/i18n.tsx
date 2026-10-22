@@ -231,6 +231,9 @@ const en = {
   historyLocal: "Episodes in this browser",
   historySummary: "By model",
   historyOpen: "Open",
+  historyDownload: "Download all",
+  historyDownloadHint: "Every stored episode as one JSON list, which the playground (or anyone's) can open again",
+  openedFailedOnly: "Only episodes with reward below 1",
   historyNotStored:
     "The transcript of this episode is not stored in this browser (only episodes finished since transcripts started being saved can be reopened).",
   openFile: "Open JSON…",
@@ -481,6 +484,9 @@ const ko: Dict = {
   historyLocal: "이 브라우저의 에피소드",
   historySummary: "모델별",
   historyOpen: "열기",
+  historyDownload: "전체 다운로드",
+  historyDownloadHint: "저장된 모든 에피소드를 JSON 목록 하나로 내려받습니다. 플레이그라운드에서 다시 열 수 있습니다",
+  openedFailedOnly: "reward가 1 미만인 에피소드만",
   historyNotStored:
     "이 에피소드의 대화 기록은 이 브라우저에 저장되어 있지 않습니다(대화 기록을 저장하기 시작한 뒤에 끝난 에피소드만 다시 열 수 있습니다).",
   openFile: "JSON 열기…",

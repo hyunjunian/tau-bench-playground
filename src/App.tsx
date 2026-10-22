@@ -382,6 +382,24 @@ export default function App() {
     };
   }, []);
 
+  /** Every stored episode, oldest first, in the same list shape as a batch results file. */
+  const downloadHistory = async () => {
+    const records: unknown[] = [];
+    for (const entry of [...history.entries].reverse()) {
+      const text = await loadArchivedEpisode(entry.id).catch(() => null);
+      try {
+        if (text) records.push(JSON.parse(text));
+      } catch {
+        // a damaged entry is skipped
+      }
+    }
+    if (records.length === 0) {
+      window.alert(t("historyNotStored"));
+      return;
+    }
+    downloadJson(`tau-bench-history-${Date.now()}.json`, records);
+  };
+
   const openHistoryEntry = async (entry: HistoryEntry) => {
     let text: string | null = null;
     try {
@@ -518,6 +536,7 @@ export default function App() {
               taskDone={showEpisodeTask && !!state?.done}
               history={history.entries}
               onClearHistory={history.clear}
+              onDownloadHistory={() => void downloadHistory()}
               onOpenHistory={(e) => void openHistoryEntry(e)}
               opened={opened}
               onOpenFile={(f) => void openFile(f)}

@@ -366,6 +366,7 @@ function OpenedFileList({
   onRecompute: () => void;
 }) {
   const t = useT();
+  const [failedOnly, setFailedOnly] = useState(false);
   const results = file.recomputed ?? null;
   const running = !!file.recomputing;
   const recorded = file.records.filter((r) => r.reward !== null).map((r) => ({ task: String(r.taskId), reward: r.reward! }));
@@ -410,6 +411,10 @@ function OpenedFileList({
           {t("verifyRun")}
         </button>
       </div>
+      <label className="check small">
+        <input type="checkbox" checked={failedOnly} onChange={(e) => setFailedOnly(e.target.checked)} />
+        <span>{t("openedFailedOnly")}</span>
+      </label>
       <table className="history">
         <thead>
           <tr>
@@ -422,6 +427,7 @@ function OpenedFileList({
         </thead>
         <tbody>
           {file.records.map((r) => {
+            if (failedOnly && r.reward !== null && isSuccess(r.reward)) return null;
             const c = results?.get(r.position);
             const differs = c && !("error" in c) && r.reward !== null && Math.abs(c.reward - r.reward) > 1e-6;
             return (
@@ -498,6 +504,7 @@ function ModelSummary({ entries }: { entries: HistoryEntry[] }) {
 function HistoryTab({
   entries,
   onClear,
+  onDownloadAll,
   onOpenEntry,
   opened,
   onOpenFile,
@@ -507,6 +514,7 @@ function HistoryTab({
 }: {
   entries: HistoryEntry[];
   onClear: () => void;
+  onDownloadAll: () => void;
   onOpenEntry: (e: HistoryEntry) => void;
   opened: OpenedFile | null;
   onOpenFile: (file: File) => void;
@@ -530,9 +538,14 @@ function HistoryTab({
         <>
           <div className="row space">
             <span>{t("historyAverage", { avg: (avg ?? 0).toFixed(3), n: entries.length })}</span>
-            <button type="button" className="btn btn-small btn-ghost" onClick={onClear}>
-              {t("historyClear")}
-            </button>
+            <span className="row">
+              <button type="button" className="btn btn-small" title={t("historyDownloadHint")} onClick={onDownloadAll}>
+                {t("historyDownload")}
+              </button>
+              <button type="button" className="btn btn-small btn-ghost" onClick={onClear}>
+                {t("historyClear")}
+              </button>
+            </span>
           </div>
           <ModelSummary entries={entries} />
           <table className="history">
@@ -583,6 +596,7 @@ export function Inspector({
   taskDone,
   history,
   onClearHistory,
+  onDownloadHistory,
   onOpenHistory,
   opened,
   onOpenFile,
@@ -603,6 +617,7 @@ export function Inspector({
   taskDone: boolean;
   history: HistoryEntry[];
   onClearHistory: () => void;
+  onDownloadHistory: () => void;
   onOpenHistory: (e: HistoryEntry) => void;
   opened: OpenedFile | null;
   onOpenFile: (file: File) => void;
@@ -658,6 +673,7 @@ export function Inspector({
           <HistoryTab
             entries={history}
             onClear={onClearHistory}
+            onDownloadAll={onDownloadHistory}
             onOpenEntry={onOpenHistory}
             opened={opened}
             onOpenFile={onOpenFile}
