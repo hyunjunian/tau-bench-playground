@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { useT } from "../i18n";
+import { type TKey, useT } from "../i18n";
 import { STOP_TOKEN } from "../tau/env";
 import type { Controller, GenMeta, Item } from "../tau/episode";
 import { formatBytes, oneLine, prettyArgs, prettyObservation } from "../ui/format";
@@ -120,7 +120,7 @@ const ItemView = memo(function ItemView({ item }: { item: Item }) {
     case "tool":
       return <ToolCard item={item} />;
     case "notice":
-      return <div className={`notice notice-${item.level}`}>{item.text}</div>;
+      return <div className={`notice notice-${item.level}`}>{item.code ? t(item.code as TKey, item.vars) : item.text}</div>;
   }
 });
 

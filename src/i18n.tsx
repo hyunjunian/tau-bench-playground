@@ -244,6 +244,8 @@ const en = {
   verifySummary: "Recomputed: {same} match the file, {differ} differ (≠), {failed} could not be replayed (!).",
   colRecomputed: "Recomputed",
   replayBadge: "replay",
+  replayObsDiffers: "The recorded result of {name} differs from the recomputed one: {recorded}",
+  replayRewardDiffers: "The file records reward {recorded}, but replaying the trajectory gives {reward}.",
   replayNote:
     "Rebuilt from a saved trajectory: every tool call was run again on a fresh database and the reward was recomputed.",
 };
@@ -491,6 +493,8 @@ const ko: Dict = {
   verifySummary: "다시 계산: {same}개 일치, {differ}개 다름(≠), {failed}개 다시 실행 못 함(!).",
   colRecomputed: "다시 계산",
   replayBadge: "다시 보기",
+  replayObsDiffers: "{name}의 기록된 결과가 다시 계산한 결과와 다릅니다: {recorded}",
+  replayRewardDiffers: "파일에는 reward {recorded}로 기록되어 있지만, 궤적을 다시 실행하면 {reward}입니다.",
   replayNote: "저장된 궤적으로 다시 만든 에피소드입니다. 모든 툴 호출을 새 데이터베이스에서 다시 실행하고 reward를 다시 계산했습니다.",
 };
 

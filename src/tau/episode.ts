@@ -69,7 +69,15 @@ export type Item =
       note: string | null;
       meta?: GenMeta;
     }
-  | { id: number; kind: "notice"; level: "info" | "warn" | "error"; text: string };
+  | {
+      id: number;
+      kind: "notice";
+      level: "info" | "warn" | "error";
+      /** English text; `code` and `vars` let the UI show a translation instead. */
+      text: string;
+      code?: string;
+      vars?: Record<string, string | number>;
+    };
 
 type NewItem = Item extends infer T ? (T extends Item ? Omit<T, "id"> : never) : never;
 
@@ -531,7 +539,8 @@ export class Episode {
     const react = !msgs.some((m) => m.tool_calls?.length) && msgs.some((m) => m.role === "assistant" && /Action:/.test(messageText(m.content)));
     const flagDifference = (name: string, recorded: string, actual: string | null) => {
       if (actual !== null && recorded !== actual) {
-        ep.push({ kind: "notice", level: "warn", text: `Recorded result of ${name} differs from the recomputed one: ${recorded.slice(0, 200)}` });
+        const vars = { name, recorded: recorded.slice(0, 200) };
+        ep.push({ kind: "notice", level: "warn", text: `Recorded result of ${name} differs from the recomputed one: ${vars.recorded}`, code: "replayObsDiffers", vars });
       }
     };
     ep.update({ turn: "user" });
@@ -597,6 +606,8 @@ export class Episode {
         kind: "notice",
         level: "warn",
         text: `The file records reward ${recorded}, but replaying the trajectory gives ${done.reward}.`,
+        code: "replayRewardDiffers",
+        vars: { recorded, reward: done.reward },
       });
     }
     return ep;
