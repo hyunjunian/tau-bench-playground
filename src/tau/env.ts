@@ -57,6 +57,8 @@ export class Domain {
   readonly toolSpecs: Map<string, ToolSpec>;
   readonly toolsInfo: ToolInfo[];
   private readonly impls: Record<string, ToolImpl>;
+  /** Only the last task is kept: scoring the same task again is common, and each database copy is large. */
+  private lastGroundTruth: { task: Task; data: PyDict } | null = null;
 
   constructor(
     readonly name: DomainName,
@@ -79,6 +81,18 @@ export class Domain {
 
   hasTool(name: string): boolean {
     return this.toolSpecs.has(name);
+  }
+
+  /** The database after replaying a task's ground-truth actions. Shared between calls: treat it as read-only. */
+  groundTruthData(task: Task): PyDict {
+    if (this.lastGroundTruth?.task === task) return this.lastGroundTruth.data;
+    const data = this.freshData();
+    for (const action of task.actions) {
+      if (TERMINATE_TOOLS.includes(action.name) || action.name === RESPOND_ACTION_NAME) continue;
+      if (this.hasTool(action.name)) this.invokeTool(data, action.name, deepCopy(action.kwargs));
+    }
+    this.lastGroundTruth = { task, data };
+    return data;
   }
 
   /**
@@ -192,11 +206,7 @@ export class TauEnv {
   }
 
   calculateReward(): RewardInfo {
-    const gtData = this.domain.freshData();
-    for (const action of this.task.actions) {
-      if (TERMINATE_TOOLS.includes(action.name) || action.name === RESPOND_ACTION_NAME) continue;
-      if (this.domain.hasTool(action.name)) this.domain.invokeTool(gtData, action.name, deepCopy(action.kwargs));
-    }
+    const gtData = this.domain.groundTruthData(this.task);
     // tau-bench compares consistent_hash(to_hashable(data)); strictEqual distinguishes exactly the same things.
     const rActions = strictEqual(this.data, gtData);
     let reward = rActions ? 1 : 0;

@@ -41,7 +41,11 @@ export function formatBytes(n: number): string {
 }
 
 export function downloadJson(filename: string, data: unknown) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  downloadText(filename, JSON.stringify(data, null, 2), "application/json");
+}
+
+export function downloadText(filename: string, text: string, type: string) {
+  const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

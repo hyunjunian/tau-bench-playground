@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { useT } from "../i18n";
+import { type TKey, useT } from "../i18n";
 import { STOP_TOKEN } from "../tau/env";
 import type { Controller, GenMeta, Item } from "../tau/episode";
 import { formatBytes, oneLine, prettyArgs, prettyObservation } from "../ui/format";
@@ -30,7 +30,8 @@ function Reasoning({ text }: { text?: string }) {
 const ToolCard = memo(function ToolCard({ item }: { item: Extract<Item, { kind: "tool" }> }) {
   const t = useT();
   const short = item.observation.length <= 160 && !item.observation.includes("\n");
-  const [open, setOpen] = useState(item.error);
+  // A human agent needs to read what their own tool call returned.
+  const [open, setOpen] = useState(item.error || item.by === "human");
   const obs = prettyObservation(item.observation);
   return (
     <div className={`tool-card ${item.error ? "is-error" : ""}`}>
@@ -65,7 +66,7 @@ const ToolCard = memo(function ToolCard({ item }: { item: Extract<Item, { kind: 
             {t("observation")} <span className="muted">({formatBytes(item.observation.length)})</span>{" "}
             {!open && <code className="muted">{oneLine(item.observation, 120)}</code>}
           </summary>
-          {open && (obs.isJson ? <JsonBlock text={obs.text} /> : <pre>{obs.text}</pre>)}
+          {open && (obs.isJson ? <JsonBlock text={obs.text} focusable /> : <pre tabIndex={0}>{obs.text}</pre>)}
         </details>
       )}
     </div>
@@ -119,7 +120,7 @@ const ItemView = memo(function ItemView({ item }: { item: Item }) {
     case "tool":
       return <ToolCard item={item} />;
     case "notice":
-      return <div className={`notice notice-${item.level}`}>{item.text}</div>;
+      return <div className={`notice notice-${item.level}`}>{item.code ? t(item.code as TKey, item.vars) : item.text}</div>;
   }
 });
 

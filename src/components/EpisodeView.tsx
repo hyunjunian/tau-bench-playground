@@ -1,18 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { Episode, EpisodeState } from "../tau/episode";
+import { downloadText } from "../ui/format";
+import { endReasonText } from "../ui/reasons";
+import { type SuggestionSource, collectSuggestions } from "../ui/suggest";
+import { transcriptMarkdown } from "../ui/transcript";
+import { useNow } from "../ui/useNow";
 import { AgentComposer, UserComposer } from "./Composers";
+import { focusKeyInput } from "./SetupPanel";
+import type { PreferredTool } from "./ToolForm";
 import { Transcript } from "./Transcript";
-
-function useNow(active: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => setNow(Date.now()), 250);
-    return () => clearInterval(id);
-  }, [active]);
-  return now;
-}
 
 function StatusBar({ episode, state }: { episode: Episode; state: EpisodeState }) {
   const t = useT();
@@ -20,7 +17,7 @@ function StatusBar({ episode, state }: { episode: Episode; state: EpisodeState }
   const role = state.turn;
   const label = role === "agent" ? t("thinkingAgent") : t("thinkingUser");
   return (
-    <div className="status-bar">
+    <div className="status-bar" role="status">
       {state.busy ? (
         <span className="status">
           <span className="spinner" aria-hidden />
@@ -61,26 +58,35 @@ function StatusBar({ episode, state }: { episode: Episode; state: EpisodeState }
 
 function ResultBanner({
   state,
+  markdown,
   onDetails,
   onDownload,
   onAgain,
   onNext,
 }: {
   state: EpisodeState;
+  /** The transcript as Markdown, built on demand. */
+  markdown: () => string;
   onDetails: () => void;
   onDownload: () => void;
   onAgain: () => void;
   onNext: () => void;
 }) {
   const t = useT();
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    const text = markdown();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // no clipboard access (e.g. an insecure origin): save it instead
+      downloadText("tau-bench-transcript.md", text, "text/markdown");
+    }
+  };
   const done = state.done!;
-  const reasonText = {
-    user_stop: t("doneUserStop"),
-    transfer: t("doneTransfer"),
-    max_steps: t("doneMaxSteps"),
-    manual: t("doneManual"),
-    crash: t("doneCrash"),
-  }[done.reason];
+  const reasonText = endReasonText(t, done.reason);
   const ok = done.reward === 1;
   return (
     <div className={`result-banner ${ok ? "ok" : "bad"}`}>
@@ -111,6 +117,9 @@ function ResultBanner({
         <button type="button" className="btn btn-small" onClick={onDownload}>
           {t("download")}
         </button>
+        <button type="button" className="btn btn-small" onClick={() => void copy()}>
+          {copied ? `✓ ${t("copied")}` : t("copyMarkdown")}
+        </button>
         <button type="button" className="btn btn-small" onClick={onAgain}>
           {t("sameTaskAgain")}
         </button>
@@ -133,7 +142,7 @@ export function EpisodeView({
 }: {
   episode: Episode;
   state: EpisodeState;
-  preferredTool: string | null;
+  preferredTool: PreferredTool | null;
   onDetails: () => void;
   onDownload: () => void;
   onAgain: () => void;
@@ -141,13 +150,44 @@ export function EpisodeView({
 }) {
   const t = useT();
   const { taskRef, domain, task } = episode.setup;
+  const root = useRef<HTMLDivElement>(null);
+  // On a phone the columns stack, so bring a new episode into view.
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 760px)").matches) root.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [episode]);
   const humanTurn = state.turn && episode.controllerOf(state.turn) === "human";
   const totalTokens = state.usage.agent.prompt + state.usage.agent.completion + state.usage.user.prompt + state.usage.user.completion;
   const userStarted = state.items.some((i) => i.kind === "user");
+  const humanAgent = episode.controllerOf("agent") === "human";
+  const suggestions = useMemo(() => {
+    if (!humanAgent) return new Map<string, string[]>();
+    const sources: SuggestionSource[] = [];
+    for (const i of state.items) {
+      if (i.kind === "tool") sources.push({ kind: "tool", name: i.name, observation: i.observation, error: i.error });
+      else if (i.kind === "user") sources.push({ kind: "user", text: i.text });
+    }
+    return collectSuggestions(sources);
+  }, [humanAgent, state.items]);
 
   let footer: React.ReactNode;
   if (state.done) {
-    footer = <ResultBanner state={state} onDetails={onDetails} onDownload={onDownload} onAgain={onAgain} onNext={onNext} />;
+    const markdown = () =>
+      transcriptMarkdown(state.items, {
+        title: `τ-bench ${taskRef.domain}/${taskRef.split} #${taskRef.index}`,
+        agent: t("agentLabel"),
+        user: t("userLabel"),
+        outcome: state.done ? `${t("rewardLabel")} ${state.done.reward.toFixed(1)}: ${endReasonText(t, state.done.reason)}` : null,
+      });
+    footer = (
+      <ResultBanner
+        state={state}
+        markdown={markdown}
+        onDetails={onDetails}
+        onDownload={onDownload}
+        onAgain={onAgain}
+        onNext={onNext}
+      />
+    );
   } else if (state.error) {
     footer = (
       <div className="error-box" role="alert">
@@ -157,6 +197,11 @@ export function EpisodeView({
           <button type="button" className="btn btn-small" onClick={() => episode.endNow()}>
             {t("endNow")}
           </button>
+          {state.error.missingKey && (
+            <button type="button" className="btn btn-small" onClick={() => focusKeyInput(state.error!.missingKey!)}>
+              {t("enterKey")}
+            </button>
+          )}
           <button type="button" className="btn btn-small btn-primary" onClick={() => episode.retry()}>
             {t("retry")}
           </button>
@@ -168,22 +213,40 @@ export function EpisodeView({
       <AgentComposer
         tools={domain.toolsInfo}
         preferredTool={preferredTool}
+        suggestions={suggestions}
+        draftModel={episode.setup.modelFor("agent").model}
+        version={state.items.length}
+        onDraft={(signal) => episode.draft("agent", signal)}
         onReply={(text) => episode.sendAgentReply(text)}
         onTool={(name, kwargs) => episode.callAgentTool(name, kwargs)}
       />
     );
   } else if (humanTurn && state.turn === "user") {
-    footer = <UserComposer instruction={task.instruction} started={userStarted} onSend={(text) => episode.sendUserMessage(text)} />;
+    footer = (
+      <UserComposer
+        instruction={task.instruction}
+        started={userStarted}
+        draftModel={episode.setup.modelFor("user").model}
+        version={state.items.length}
+        onDraft={(signal) => episode.draft("user", signal)}
+        onSend={(text) => episode.sendUserMessage(text)}
+      />
+    );
   } else if (state.turn) {
     footer = <StatusBar episode={episode} state={state} />;
   }
 
   return (
-    <div className="episode">
+    <div className="episode" ref={root}>
       <div className="episode-head">
         <span className="pill">
           {taskRef.domain} · {taskRef.split} · #{taskRef.index}
         </span>
+        {episode.setup.replayOf && (
+          <span className="badge badge-accent replay-badge" title={t("replayNote")}>
+            {t("replayBadge")} · {episode.setup.replayOf}
+          </span>
+        )}
         <span className="muted">{t("agentActions", { n: `${state.agentSteps}${episode.setup.maxAgentSteps ? `/${episode.setup.maxAgentSteps}` : ""}` })}</span>
         {totalTokens > 0 && <span className="muted">{t("tokens", { n: totalTokens.toLocaleString() })}</span>}
         <span className="spacer" />

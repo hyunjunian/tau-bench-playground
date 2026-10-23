@@ -1,9 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { JsonSchema, ToolInfo } from "../tau/env";
 import { parseToolArguments } from "../tau/episode";
 import { PyDict, PyFloat, type PyValue, jsonPretty } from "../tau/py";
-import { isReadTool } from "../ui/format";
+import { isReadTool, prettyArgs } from "../ui/format";
+import { type Suggestions, suggestionsFor } from "../ui/suggest";
+
+const MAX_CHIPS = 12;
+
+/** The tool picked in the Tools tab ("Use"). */
+export interface PreferredTool {
+  name: string;
+}
+
+/** A tool call drafted by the model, to load into the form (a new object per draft). */
+export interface ToolDraft {
+  name: string;
+  args: string;
+}
 
 type Row = Record<string, string>;
 type Values = Record<string, string | Row[]>;
@@ -60,7 +74,19 @@ function buildKwargs(info: ToolInfo, values: Values): PyDict {
   return kwargs;
 }
 
-function Input({ schema, value, onChange }: { schema: JsonSchema; value: string; onChange: (v: string) => void }) {
+function Input({
+  schema,
+  value,
+  onChange,
+  options = [],
+}: {
+  schema: JsonSchema;
+  value: string;
+  onChange: (v: string) => void;
+  /** Values seen earlier in the conversation, offered as autocomplete. */
+  options?: string[];
+}) {
+  const listId = useId();
   if (schema.enum) {
     return (
       <select value={value} onChange={(e) => onChange(e.target.value)}>
@@ -73,46 +99,118 @@ function Input({ schema, value, onChange }: { schema: JsonSchema; value: string;
       </select>
     );
   }
+  const withList = options.length > 0 && schema.type !== "array";
   return (
-    <input
-      className="mono"
-      value={value}
-      spellCheck={false}
-      inputMode={schema.type === "number" || schema.type === "integer" ? "decimal" : undefined}
-      onChange={(e) => onChange(e.target.value)}
-    />
+    <>
+      <input
+        className="mono"
+        value={value}
+        spellCheck={false}
+        autoComplete="off"
+        list={withList ? listId : undefined}
+        inputMode={schema.type === "number" || schema.type === "integer" ? "decimal" : undefined}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {withList && (
+        <datalist id={listId}>
+          {options.map((o) => (
+            <option key={o} value={o} />
+          ))}
+        </datalist>
+      )}
+    </>
+  );
+}
+
+/** Click-to-add values for list fields such as item_ids (a datalist cannot complete one list entry). */
+function ListChips({ options, value, onChange }: { options: string[]; value: string; onChange: (v: string) => void }) {
+  const t = useT();
+  if (options.length === 0) return null;
+  const current = value.split(/[\s,]+/).filter(Boolean);
+  return (
+    <div className="suggest-chips" aria-label={t("suggestions")}>
+      {options.slice(0, MAX_CHIPS).map((o) => {
+        const used = current.includes(o);
+        return (
+          <button
+            key={o}
+            type="button"
+            className={`chip mono ${used ? "active" : ""}`}
+            title={used ? t("suggestionRemove") : t("suggestionAdd")}
+            onClick={() => onChange((used ? current.filter((x) => x !== o) : [...current, o]).join(", "))}
+          >
+            {o}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
 export function ToolForm({
   tools,
   preferred,
+  draft,
+  suggestions,
   onRun,
 }: {
   tools: ToolInfo[];
-  preferred: string | null;
+  preferred: PreferredTool | null;
+  draft?: ToolDraft | null;
+  suggestions?: Suggestions;
   onRun: (name: string, kwargs: PyDict) => void;
 }) {
   const t = useT();
-  const [name, setName] = useState(preferred ?? tools[0]?.function.name ?? "");
+  // A form opened for a draft (the Tool tab was not showing) starts from it.
+  const startDraft = draft && tools.some((x) => x.function.name === draft.name) ? draft : null;
+  const [name, setName] = useState(startDraft?.name ?? preferred?.name ?? tools[0]?.function.name ?? "");
   const info = useMemo(() => tools.find((x) => x.function.name === name) ?? tools[0], [tools, name]);
   const [values, setValues] = useState<Values>(() => emptyValues(info));
-  const [jsonMode, setJsonMode] = useState(false);
-  const [jsonText, setJsonText] = useState("{}");
+  const [jsonMode, setJsonMode] = useState(!!startDraft);
+  const [jsonText, setJsonText] = useState(() => (startDraft ? prettyArgs(startDraft.args) : "{}"));
   const [error, setError] = useState<string | null>(null);
 
+  // Only a new pick from the Tools tab switches the tool; on mount the initial state already took it (or a draft) into account.
+  const appliedPreferred = useRef(preferred);
   useEffect(() => {
-    if (preferred) setName(preferred);
+    if (!preferred || preferred === appliedPreferred.current) return;
+    appliedPreferred.current = preferred;
+    setName(preferred.name);
   }, [preferred]);
 
+  // A later draft shows its arguments as JSON; for another tool they wait for the switch, since a tool change resets the form.
+  const pendingDraft = useRef<ToolDraft | null>(null);
   useEffect(() => {
+    if (!draft) return;
+    if (!tools.some((x) => x.function.name === draft.name)) {
+      setError(t("draftUnknownTool", { name: draft.name }));
+      return;
+    }
+    setJsonMode(true);
+    setError(null);
+    if (draft.name === info.function.name) {
+      setJsonText(prettyArgs(draft.args));
+    } else {
+      pendingDraft.current = draft;
+      setName(draft.name);
+    }
+  }, [draft]);
+
+  // Reset the form when the tool changes (not on mount: the initial state already fits).
+  const shownInfo = useRef(info);
+  useEffect(() => {
+    if (shownInfo.current === info) return;
+    shownInfo.current = info;
+    const d = pendingDraft.current;
+    pendingDraft.current = null;
     setValues(emptyValues(info));
-    setJsonText("{}");
+    setJsonText(d && d.name === info.function.name ? prettyArgs(d.args) : "{}");
     setError(null);
   }, [info]);
 
   const props = Object.entries(info.function.parameters.properties ?? {});
   const required = new Set(info.function.parameters.required ?? []);
+  const optionsFor = (param: string) => (suggestions ? suggestionsFor(suggestions, param) : []);
 
   const switchMode = () => {
     if (!jsonMode) setJsonText(jsonPretty(buildKwargs(info, values)));
@@ -137,7 +235,15 @@ export function ToolForm({
   };
 
   return (
-    <div className="tool-form">
+    <div
+      className="tool-form"
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+          e.preventDefault();
+          submit();
+        }
+      }}
+    >
       <div className="row">
         <label className="field grow">
           <span>{t("chooseTool")}</span>
@@ -183,6 +289,7 @@ export function ToolForm({
                           <Input
                             schema={s}
                             value={row[k] ?? ""}
+                            options={optionsFor(k)}
                             onChange={(nv) =>
                               setValues((old) => {
                                 const list = [...((old[pname] as Row[]) ?? [])];
@@ -225,7 +332,19 @@ export function ToolForm({
                     {schema.description}
                   </small>
                 </span>
-                <Input schema={schema} value={(v as string) ?? ""} onChange={(nv) => setValues((old) => ({ ...old, [pname]: nv }))} />
+                <Input
+                  schema={schema}
+                  value={(v as string) ?? ""}
+                  options={optionsFor(pname)}
+                  onChange={(nv) => setValues((old) => ({ ...old, [pname]: nv }))}
+                />
+                {schema.type === "array" && (
+                  <ListChips
+                    options={optionsFor(pname)}
+                    value={(v as string) ?? ""}
+                    onChange={(nv) => setValues((old) => ({ ...old, [pname]: nv }))}
+                  />
+                )}
               </label>
             );
           })}
@@ -233,7 +352,7 @@ export function ToolForm({
       )}
       {error && <div className="error-text">{error}</div>}
       <div className="row end">
-        <button type="button" className="btn btn-primary" onClick={submit}>
+        <button type="button" className="btn btn-primary" title="Ctrl+Enter" onClick={submit}>
           {t("runTool")}
         </button>
       </div>

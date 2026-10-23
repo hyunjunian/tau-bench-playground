@@ -1,20 +1,27 @@
 import { useState } from "react";
 import { useT } from "../i18n";
 import { type Endpoint, PROVIDERS, type ProviderId } from "../llm/providers";
+import type { HistoryEntry } from "../state/history";
 import type { RoleSettings, Settings } from "../state/settings";
-import { DOMAIN_SPLITS, type DomainName } from "../tau/env";
+import { DOMAIN_SPLITS, type DomainName, type Task } from "../tau/env";
 import type { Controller, Role } from "../tau/episode";
 import { ModelPicker } from "./ModelPicker";
+import { TaskPicker } from "./TaskPicker";
 
 interface Props {
   settings: Settings;
   update: (patch: Partial<Settings> | ((s: Settings) => Settings)) => void;
   taskCount: number | null;
+  /** Tasks of the selected domain and split, once loaded. */
+  tasks: Task[] | null;
+  history: HistoryEntry[];
   loading: boolean;
   loadError: string | null;
   episodeRunning: boolean;
+  batchRunning: boolean;
   endpointFor: (p: ProviderId) => Endpoint;
   onStart: () => void;
+  onBatch: () => void;
 }
 
 const QUICK: { key: "quickWatch" | "quickPlayAgent" | "quickPlayUser" | "quickHumans"; agent: Controller; user: Controller }[] = [
@@ -78,11 +85,26 @@ function RoleCard({
         ]}
         onChange={(controller) => onChange({ ...value, controller })}
       />
-      {value.controller === "model" && (
+      {value.controller === "model" ? (
         <ModelPicker value={value.model} onChange={(model) => onChange({ ...value, model })} endpointFor={endpointFor} />
+      ) : (
+        // A human can still ask this model for a draft of the next move.
+        <details className="draft-model">
+          <summary>{t("draftModelTitle", { model: value.model.model || "?" })}</summary>
+          <ModelPicker value={value.model} onChange={(model) => onChange({ ...value, model })} endpointFor={endpointFor} />
+        </details>
       )}
     </div>
   );
+}
+
+/** DOM id of a provider's API key field (the episode's error box links to it). */
+export const keyInputId = (provider: ProviderId) => `api-key-${provider}`;
+
+export function focusKeyInput(provider: ProviderId) {
+  const input = document.getElementById(keyInputId(provider));
+  input?.scrollIntoView({ block: "center", behavior: "smooth" });
+  input?.focus({ preventScroll: true });
 }
 
 function KeyInput({ provider, value, onChange }: { provider: ProviderId; value: string; onChange: (v: string) => void }) {
@@ -101,6 +123,7 @@ function KeyInput({ provider, value, onChange }: { provider: ProviderId; value: 
       </span>
       <div className="row">
         <input
+          id={keyInputId(provider)}
           className="mono"
           type={visible ? "text" : "password"}
           autoComplete="off"
@@ -117,18 +140,90 @@ function KeyInput({ provider, value, onChange }: { provider: ProviderId; value: 
   );
 }
 
-export function SetupPanel({ settings, update, taskCount, loading, loadError, episodeRunning, endpointFor, onStart }: Props) {
+function CountInput({ value, min, max, onChange }: { value: number; min: number; max?: number; onChange: (v: number) => void }) {
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      value={value}
+      onChange={(e) => {
+        const v = Math.floor(Number(e.target.value) || 0);
+        onChange(Math.max(min, max === undefined ? v : Math.min(max, v)));
+      }}
+    />
+  );
+}
+
+function BatchSetup({
+  settings,
+  update,
+  taskCount,
+  disabled,
+  onBatch,
+}: {
+  settings: Settings;
+  update: Props["update"];
+  taskCount: number | null;
+  disabled: boolean;
+  onBatch: () => void;
+}) {
   const t = useT();
+  const b = settings.batch;
+  const last = Math.max(0, (taskCount ?? 1) - 1);
+  const from = Math.min(b.from, last);
+  const to = Math.min(Math.max(b.to, from), last);
+  const episodes = (to - from + 1) * b.trials;
+  const bothModels = settings.agent.controller === "model" && settings.user.controller === "model";
+  const set = (patch: Partial<Settings["batch"]>) => update((s) => ({ ...s, batch: { ...s.batch, ...patch } }));
+  return (
+    <details className="batch-setup">
+      <summary>{t("batchSection")}</summary>
+      <p className="note">{t("batchHint", { k: b.trials })}</p>
+      <div className="row three">
+        <label className="field">
+          <span>{t("batchFrom")}</span>
+          <CountInput value={from} min={0} max={last} onChange={(v) => set({ from: v, to: Math.max(v, b.to) })} />
+        </label>
+        <label className="field">
+          <span>{t("batchTo")}</span>
+          <CountInput value={to} min={0} max={last} onChange={(v) => set({ to: v, from: Math.min(v, b.from) })} />
+        </label>
+        <label className="field">
+          <span>{t("batchTrials")}</span>
+          <CountInput value={b.trials} min={1} max={100} onChange={(v) => set({ trials: v })} />
+        </label>
+      </div>
+      {!bothModels && <p className="note">{t("batchNeedsModels")}</p>}
+      <button type="button" className="btn btn-block" disabled={disabled || !bothModels || !taskCount} onClick={onBatch}>
+        {t("batchRun", { n: episodes })}
+      </button>
+    </details>
+  );
+}
+
+export function SetupPanel({
+  settings,
+  update,
+  taskCount,
+  tasks,
+  history,
+  loading,
+  loadError,
+  episodeRunning,
+  batchRunning,
+  endpointFor,
+  onStart,
+  onBatch,
+}: Props) {
+  const t = useT();
+  const [picking, setPicking] = useState(false);
   const splits = DOMAIN_SPLITS[settings.domain];
   const max = taskCount ?? 0;
   const setTask = (i: number) => update({ taskIndex: Math.max(0, Math.min(max - 1, i)) });
-  const providersInUse = Array.from(
-    new Set(
-      (["agent", "user"] as const)
-        .filter((r) => settings[r].controller === "model")
-        .map((r) => settings[r].model.provider),
-    ),
-  );
+  // Human roles count too: their model writes drafts on request.
+  const providersInUse = Array.from(new Set((["agent", "user"] as const).map((r) => settings[r].model.provider)));
+  const anyModel = settings.agent.controller === "model" || settings.user.controller === "model";
 
   return (
     <div className="setup">
@@ -180,9 +275,31 @@ export function SetupPanel({ settings, update, taskCount, loading, loadError, ep
               >
                 🎲
               </button>
+              <button
+                type="button"
+                className="btn btn-small"
+                title={t("pickerTitle")}
+                aria-label={t("pickerTitle")}
+                disabled={!tasks}
+                onClick={() => setPicking(true)}
+              >
+                ☰
+              </button>
             </div>
           </label>
         </div>
+        {picking && tasks && (
+          <TaskPicker
+            domain={settings.domain}
+            split={settings.split}
+            tasks={tasks}
+            selected={settings.taskIndex}
+            history={history}
+            hideInstructions={settings.agent.controller === "human"}
+            onPick={(i) => setTask(i)}
+            onClose={() => setPicking(false)}
+          />
+        )}
         {loading && <small className="muted">{t("loading")}</small>}
         {loadError && <small className="error-text">{t("loadFailed", { error: loadError })}</small>}
       </section>
@@ -209,7 +326,7 @@ export function SetupPanel({ settings, update, taskCount, loading, loadError, ep
         </div>
         <RoleCard role="agent" value={settings.agent} onChange={(agent) => update({ agent })} endpointFor={endpointFor} />
         <RoleCard role="user" value={settings.user} onChange={(user) => update({ user })} endpointFor={endpointFor} />
-        {providersInUse.length > 0 && <p className="note">{t("modelNote")}</p>}
+        {anyModel && <p className="note">{t("modelNote")}</p>}
       </section>
 
       {providersInUse.length > 0 && (
@@ -256,6 +373,7 @@ export function SetupPanel({ settings, update, taskCount, loading, loadError, ep
           <input type="checkbox" checked={settings.stepMode} onChange={(e) => update({ stepMode: e.target.checked })} />
           <span>{t("stepMode")}</span>
         </label>
+        <BatchSetup settings={settings} update={update} taskCount={taskCount} disabled={loading || batchRunning} onBatch={onBatch} />
       </section>
 
       <div className="start-bar">

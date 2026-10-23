@@ -51,6 +51,17 @@ export interface CompletionResult {
   latencyMs: number;
 }
 
+/** No API key is set for the provider a role uses (thrown before any request). */
+export class MissingKeyError extends Error {
+  constructor(
+    readonly provider: ProviderId,
+    message: string,
+  ) {
+    super(message);
+    this.name = "MissingKeyError";
+  }
+}
+
 export class LlmError extends Error {
   constructor(
     message: string,
@@ -122,7 +133,8 @@ function isDailyQuota(text: string): boolean {
   return /per[\s_-]?day|daily|PerDay/i.test(text);
 }
 
-function textContent(content: unknown): string | null {
+/** Text of a message's `content` (a string, or a list of text parts). */
+export function textContent(content: unknown): string | null {
   if (content === null || content === undefined) return null;
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
@@ -170,10 +182,39 @@ function toolsForProvider(tools: ToolInfo[], provider: ProviderId): unknown[] {
   });
 }
 
+/**
+ * Gemini 3 rejects a function call in the current turn that carries no thought signature: one a human
+ * agent made (the model is then asked for a draft), or one another model made before the role was
+ * switched to Gemini. Those calls get the placeholder Google documents for injected calls. Calls with
+ * a signature, and requests for models that do not check them (Gemma, Gemini 2.x), are sent as is.
+ */
+const SKIP_SIGNATURE = { google: { thought_signature: "skip_thought_signature_validator" } };
+
+/** Ids of tool calls made by a human in the playground (see Episode.callAgentTool). */
+export const HUMAN_CALL_PREFIX = "call_human_";
+
+/** Gemini 3 and later, including aliases such as gemini-flash-latest. */
+function checksSignatures(model: string): boolean {
+  const id = model.replace(/^models\//, "");
+  if (!id.startsWith("gemini")) return false;
+  const major = /^gemini-(\d+)/.exec(id);
+  return !major || Number(major[1]) >= 3;
+}
+
+function messagesForProvider(messages: ChatMessage[], provider: ProviderId, model: string): ChatMessage[] {
+  if (provider !== "google" || !checksSignatures(model)) return messages;
+  const needsPlaceholder = (c: ToolCall) => !c.extra_content;
+  return messages.map((m) =>
+    m.tool_calls?.some(needsPlaceholder)
+      ? { ...m, tool_calls: m.tool_calls.map((c) => (needsPlaceholder(c) ? { ...c, extra_content: SKIP_SIGNATURE } : c)) }
+      : m,
+  );
+}
+
 export async function chatCompletion(req: CompletionRequest): Promise<CompletionResult> {
   const { endpoint } = req;
   const url = `${endpoint.baseUrl.replace(/\/+$/, "")}/chat/completions`;
-  const body: Record<string, unknown> = { model: req.model, messages: req.messages };
+  const body: Record<string, unknown> = { model: req.model, messages: messagesForProvider(req.messages, endpoint.provider, req.model) };
   if (req.tools && req.tools.length > 0) body.tools = toolsForProvider(req.tools, endpoint.provider);
   if (req.temperature !== null && req.temperature !== undefined) body.temperature = req.temperature;
   if (req.reasoningEffort) body.reasoning_effort = req.reasoningEffort;
@@ -263,6 +304,7 @@ export async function chatCompletion(req: CompletionRequest): Promise<Completion
       await sleep(waitMs, req.signal);
       continue;
     }
-    throw new LlmError(`HTTP ${res.status}: ${msg}`, res.status, res.status === 429 || res.status >= 500);
+    const retryable = (res.status === 429 && !isDailyQuota(text)) || res.status >= 500;
+    throw new LlmError(`HTTP ${res.status}: ${msg}`, res.status, retryable);
   }
 }

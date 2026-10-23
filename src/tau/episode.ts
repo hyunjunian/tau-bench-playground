@@ -10,8 +10,16 @@
  *    conversation opens with "Hi! How can I help you today?", the episode
  *    ends when the user says ###STOP###)
  */
-import { type ChatMessage, LlmError, type Usage, chatCompletion } from "../llm/client";
-import type { Endpoint, ModelConfig } from "../llm/providers";
+import {
+  type ChatMessage,
+  HUMAN_CALL_PREFIX,
+  LlmError,
+  MissingKeyError,
+  type Usage,
+  chatCompletion,
+  textContent,
+} from "../llm/client";
+import type { Endpoint, ModelConfig, ProviderId } from "../llm/providers";
 import {
   type Domain,
   type DomainName,
@@ -41,11 +49,14 @@ export interface EpisodeSetup {
   startPaused?: boolean;
   resolveEndpoint: (cfg: ModelConfig) => Endpoint;
   onFinish?: (episode: Episode) => void;
+  /** Set for episodes rebuilt from a saved trajectory (shown in the header). */
+  replayOf?: string;
 }
 
 export interface GenMeta {
   model: string;
-  latencyMs: number;
+  /** Unknown for replayed episodes. */
+  latencyMs?: number;
   reasoning?: string;
   usage?: Usage;
 }
@@ -66,11 +77,23 @@ export type Item =
       note: string | null;
       meta?: GenMeta;
     }
-  | { id: number; kind: "notice"; level: "info" | "warn" | "error"; text: string };
+  | {
+      id: number;
+      kind: "notice";
+      level: "info" | "warn" | "error";
+      /** English text; `code` and `vars` let the UI show a translation instead. */
+      text: string;
+      code?: string;
+      vars?: Record<string, string | number>;
+    };
 
 type NewItem = Item extends infer T ? (T extends Item ? Omit<T, "id"> : never) : never;
 
-export type EndReason = "user_stop" | "transfer" | "max_steps" | "manual" | "crash";
+/**
+ * `error`: given up after an unusable model output (tau-bench records reward 0 when its run raises).
+ * `incomplete`: a replayed trajectory that stops without a reason (no ###STOP###, transfer or step limit).
+ */
+export type EndReason = "user_stop" | "transfer" | "max_steps" | "manual" | "crash" | "error" | "incomplete";
 
 export interface EpisodeResult {
   reason: EndReason;
@@ -86,7 +109,12 @@ export interface EpisodeState {
   turn: Role | null;
   busy: boolean;
   retry: { until: number; reason: string } | null;
-  error: { role: Role; message: string } | null;
+  /**
+   * `retryable`: a transient provider problem (network, 5xx, rate limit) rather than a bad model output or setting.
+   * `modelError`: the model answered, but with something unusable (tool arguments that are not JSON, an empty message).
+   * `missingKey`: the provider whose API key has to be entered first.
+   */
+  error: { role: Role; message: string; retryable: boolean; modelError: boolean; missingKey?: ProviderId } | null;
   paused: boolean;
   agentSteps: number;
   done: EpisodeResult | null;
@@ -107,8 +135,62 @@ export function parseToolArguments(text: string): PyDict {
   return value;
 }
 
+/** What a role's model would do next (see Episode.draft): a tool call (agent only) or a message. */
+export interface Draft {
+  model: string;
+  tool?: { name: string; args: string };
+  /** The agent's reply or the user's next message; with a tool call, any text the model wrote next to it. */
+  text: string;
+}
+
+/** A recorded conversation to rebuild an episode from (see Episode.replay). */
+export interface ReplaySource {
+  /**
+   * The agent's conversation (tau-bench's `traj`): the system prompt, then
+   * user, assistant and tool messages. Tool-calling and ReAct/Act formats work.
+   */
+  traj: ChatMessage[];
+  controllers?: Partial<Record<Role, Controller>>;
+  models?: Partial<Record<Role, string>>;
+  /** How the recorded run ended, when the file says so (playground exports). */
+  endReason?: EndReason | null;
+  /** Reward stored in the file, compared with the recomputed one. */
+  recordedReward?: number | null;
+}
+
+const messageText = (content: unknown): string => textContent(content) ?? "";
+
+function reasoningOf(m: ChatMessage): string | undefined {
+  const r = m.reasoning_content ?? m.reasoning;
+  return typeof r === "string" && r.trim() ? r : undefined;
+}
+
+/** `Action: {...}` of tau-bench's ReAct/Act agents, as the agent parses it. */
+function reactAction(content: string): { thought: string; name: string; kwargs: PyDict | null; args: string; respond: string | null } {
+  const at = content.lastIndexOf("Action:");
+  const thought = at >= 0 ? content.slice(0, at).replace(/^\s*Thought:\s*/, "").trim() : "";
+  const actionText = (at >= 0 ? content.slice(at + "Action:".length) : content).trim();
+  try {
+    const parsed = parseJson(actionText);
+    if (parsed instanceof PyDict && typeof parsed.get("name") === "string") {
+      const name = parsed.get("name") as string;
+      const args = parsed.get("arguments");
+      const kwargs = args instanceof PyDict ? args : new PyDict();
+      if (name === "respond") return { thought, name, kwargs: null, args: "", respond: String(kwargs.get("content") ?? "") };
+      return { thought, name, kwargs, args: jsonDumps(kwargs), respond: null };
+    }
+  } catch {
+    // tau-bench treats an unparsable action as a reply with the raw text
+  }
+  return { thought, name: "respond", kwargs: null, args: "", respond: actionText };
+}
+
+let episodeCount = 0;
+
 export class Episode {
   readonly env: TauEnv;
+  /** Distinct per episode, so views can be keyed to it. */
+  readonly id = ++episodeCount;
   readonly startedAt = new Date();
   finishedAt: Date | null = null;
   /** The agent's conversation in OpenAI format (tau-bench's `messages`). */
@@ -124,6 +206,8 @@ export class Episode {
   private stepBudget = 0;
   private abortController: AbortController | null = null;
   private humanCalls = 0;
+  /** Model drafts a human player asked for (exported, since they can shape the episode). */
+  private readonly drafts: Record<Role, number> = { agent: 0, user: 0 };
 
   constructor(readonly setup: EpisodeSetup) {
     this.env = new TauEnv(setup.domain, setup.task);
@@ -205,6 +289,14 @@ export class Episode {
     void this.pump();
   }
 
+  /** Give up on the error like tau-bench does when a run raises: the episode ends with reward 0. */
+  failOnError() {
+    const error = this.state.error;
+    if (!error || this.state.done) return;
+    this.update({ error: null });
+    this.finish("error", error.message);
+  }
+
   /** End the conversation now and score the current database state. */
   endNow() {
     if (this.state.done) return;
@@ -236,7 +328,7 @@ export class Episode {
       return null;
     }
     const args = jsonDumps(kwargs);
-    const callId = `call_human_${++this.humanCalls}`;
+    const callId = `${HUMAN_CALL_PREFIX}${++this.humanCalls}`;
     const message: ChatMessage = {
       role: "assistant",
       content: null,
@@ -293,17 +385,7 @@ export class Episode {
         signal: this.abortController.signal,
         onRetry: ({ waitMs, reason }) => this.update({ retry: { until: Date.now() + waitMs, reason } }),
       });
-      const u = this.state.usage[role];
-      this.update({
-        usage: {
-          ...this.state.usage,
-          [role]: {
-            calls: u.calls + 1,
-            prompt: u.prompt + (res.usage?.prompt_tokens ?? 0),
-            completion: u.completion + (res.usage?.completion_tokens ?? 0),
-          },
-        },
-      });
+      this.countUsage(role, res.usage);
       const meta: GenMeta = { model: cfg.model, latencyMs: res.latencyMs, reasoning: res.reasoning, usage: res.usage };
       return { message: res.message, meta };
     } finally {
@@ -312,13 +394,52 @@ export class Episode {
     }
   }
 
+  private countUsage(role: Role, usage: Usage | undefined) {
+    const u = this.state.usage[role];
+    this.update({
+      usage: {
+        ...this.state.usage,
+        [role]: {
+          calls: u.calls + 1,
+          prompt: u.prompt + (usage?.prompt_tokens ?? 0),
+          completion: u.completion + (usage?.completion_tokens ?? 0),
+        },
+      },
+    });
+  }
+
+  /**
+   * Ask the role's model what it would do now, for a human playing that role. Nothing is sent or
+   * recorded in the conversation; only the token usage counts.
+   */
+  async draft(role: Role, signal?: AbortSignal): Promise<Draft> {
+    const cfg = this.setup.modelFor(role);
+    const endpoint = this.setup.resolveEndpoint(cfg);
+    const res = await chatCompletion({
+      endpoint,
+      model: cfg.model,
+      messages: role === "agent" ? this.agentMessages : this.userMessages,
+      tools: role === "agent" ? this.setup.domain.toolsInfo : undefined,
+      temperature: cfg.temperature,
+      reasoningEffort: cfg.reasoningEffort,
+      signal,
+    });
+    this.countUsage(role, res.usage);
+    this.drafts[role]++;
+    const call = role === "agent" ? res.message.tool_calls?.[0] : undefined;
+    const text = res.message.content ?? "";
+    return call ? { model: cfg.model, tool: { name: call.function.name, args: call.function.arguments }, text } : { model: cfg.model, text };
+  }
+
   private fail(role: Role, e: unknown): false {
     if (isAbort(e)) {
       if (!this.state.done) this.update({ paused: true });
       return false;
     }
     const message = e instanceof LlmError || e instanceof StepError || e instanceof Error ? e.message : String(e);
-    this.update({ error: { role, message } });
+    const missingKey = e instanceof MissingKeyError ? e.provider : undefined;
+    const retryable = e instanceof LlmError && e.retryable;
+    this.update({ error: { role, message, retryable, modelError: e instanceof StepError, missingKey } });
     return false;
   }
 
@@ -417,6 +538,8 @@ export class Episode {
       ({ observation, done } = this.env.stepTool({ name, kwargs }));
     } catch (e) {
       if (e instanceof EnvCrash) {
+        // Keep the call in the conversation, so an export replays into the same crash.
+        this.agentMessages.push(message);
         this.update({ agentSteps: step });
         this.push({ kind: "tool", by, step, name, args, observation: "None", error: true, note, meta });
         this.finish("crash", e.message);
@@ -444,15 +567,117 @@ export class Episode {
   private finish(reason: EndReason, message?: string) {
     if (this.state.done) return;
     const info = reason === "crash" ? null : this.env.calculateReward();
-    const reward = reason === "crash" || reason === "max_steps" ? 0 : (info?.reward ?? 0);
+    const reward = reason === "crash" || reason === "max_steps" || reason === "error" ? 0 : (info?.reward ?? 0);
     this.finishedAt = new Date();
     this.update({ done: { reason, reward, info, message }, turn: null, busy: false, retry: null });
     this.setup.onFinish?.(this);
   }
 
+  // --- replay -----------------------------------------------------------
+
+  /**
+   * Rebuild a finished episode from a recorded trajectory: every tool call is
+   * run again on a fresh database through the same transitions as a live
+   * episode, so the transcript, database diff and reward are recomputed. A
+   * recorded observation that differs from the recomputed one is flagged.
+   */
+  static replay(setup: EpisodeSetup, source: ReplaySource): Episode {
+    const ep = new Episode({ ...setup, onFinish: undefined, startPaused: true });
+    const by = (role: Role): Controller => source.controllers?.[role] ?? "model";
+    const meta = (role: Role, m?: ChatMessage): GenMeta | undefined =>
+      by(role) === "model" ? { model: source.models?.[role] ?? "?", reasoning: m && reasoningOf(m) } : undefined;
+    const msgs = source.traj;
+    // tau-bench's ReAct/Act agents list the tools in the system prompt and answer tool calls with "API output: ...".
+    // A tool-calling model that merely writes "Action:" in a reply is still replying to the user.
+    const system = messageText(msgs.find((m) => m.role === "system")?.content);
+    const react =
+      !msgs.some((m) => m.tool_calls?.length) &&
+      (system.includes("\n#Available tools\n") || msgs.some((m) => m.role === "user" && messageText(m.content).startsWith("API output: ")));
+    const flagDifference = (name: string, recorded: string, actual: string | null) => {
+      if (actual !== null && recorded !== actual) {
+        const vars = { name, recorded: recorded.slice(0, 200) };
+        ep.push({ kind: "notice", level: "warn", text: `Recorded result of ${name} differs from the recomputed one: ${vars.recorded}`, code: "replayObsDiffers", vars });
+      }
+    };
+    ep.update({ turn: "user" });
+    let i = 0;
+    while (i < msgs.length && msgs[i].role === "system") i++;
+    for (; i < msgs.length && !ep.state.done; i++) {
+      const m = msgs[i];
+      if (m.role === "user") {
+        const text = messageText(m.content);
+        if (ep.state.turn !== "user") continue; // e.g. a ReAct "API output" without its action
+        ep.userMessages.push({ role: "assistant", content: text });
+        ep.applyUserMessage(text, by("user"), meta("user", m));
+        continue;
+      }
+      if (m.role !== "assistant" || ep.state.turn !== "agent") continue;
+      if (ep.stepLimitReached()) {
+        ep.finish("max_steps");
+        break;
+      }
+      const text = messageText(m.content);
+      if (react) {
+        const a = reactAction(text);
+        if (a.respond !== null) {
+          ep.applyAgentRespond(a.respond, m, by("agent"), meta("agent", m));
+          continue;
+        }
+        const next = msgs[i + 1];
+        const recorded = next?.role === "user" && messageText(next.content).startsWith("API output: ") ? messageText(next.content).slice(12) : null;
+        if (recorded !== null) i++;
+        const obs = ep.applyAgentTool(a.name, a.kwargs!, a.args, m, `call_replay_${i}`, by("agent"), a.thought, meta("agent", m));
+        if (recorded !== null) flagDifference(a.name, recorded, obs);
+        continue;
+      }
+      const call = m.tool_calls?.[0];
+      if (!call) {
+        ep.applyAgentRespond(text, m, by("agent"), meta("agent", m));
+        continue;
+      }
+      const next = msgs[i + 1];
+      const recorded = next?.role === "tool" ? messageText(next.content) : null;
+      if (recorded !== null) i++;
+      let kwargs: PyDict;
+      try {
+        kwargs = parseToolArguments(call.function.arguments);
+      } catch (e) {
+        ep.push({ kind: "notice", level: "error", text: `${call.function.name}: ${e instanceof Error ? e.message : e}` });
+        ep.finish("crash", "The recorded tool arguments are not a JSON object (tau-bench would have failed here).");
+        break;
+      }
+      const stored: ChatMessage = { ...m, tool_calls: [call] };
+      const obs = ep.applyAgentTool(call.function.name, kwargs, call.function.arguments, stored, call.id, by("agent"), text, meta("agent", m));
+      if (recorded !== null) flagDifference(call.function.name, recorded, obs);
+    }
+    if (!ep.state.done) {
+      // A recorded crash (an export from before crashing calls were kept) still scores 0.
+      if (source.endReason === "crash") {
+        ep.push({
+          kind: "notice",
+          level: "warn",
+          text: "The file says this run crashed, but the saved trajectory stops before the crash; it is scored 0 as recorded.",
+          code: "replayCrashRecorded",
+        });
+      }
+      ep.finish(source.endReason ?? (ep.stepLimitReached() ? "max_steps" : "incomplete"));
+    }
+    const done = ep.state.done;
+    const recorded = source.recordedReward;
+    if (done && typeof recorded === "number" && Math.abs(recorded - done.reward) > 1e-6) {
+      ep.push({
+        kind: "notice",
+        level: "warn",
+        text: `The file records reward ${recorded}, but replaying the trajectory gives ${done.reward}.`,
+        code: "replayRewardDiffers",
+        vars: { recorded, reward: done.reward },
+      });
+    }
+    return ep;
+  }
+
   // --- export -----------------------------------------------------------
 
-  /** Roughly tau-bench's EnvRunResult, plus playground metadata. */
   /** Models that actually produced messages for a role. */
   modelsUsed(role: Role): string[] {
     const kinds = role === "agent" ? ["agent", "tool"] : ["user"];
@@ -463,13 +688,17 @@ export class Episode {
     return Array.from(models);
   }
 
+  /** Roughly tau-bench's EnvRunResult, plus playground metadata. */
   toJSON() {
     const { task, taskRef } = this.setup;
     const done = this.state.done;
+    // A replay did not call any model, so the current model settings would be misleading there.
     const describe = (role: Role) =>
       this.controllerOf(role) === "human"
         ? { controller: "human" }
-        : { controller: "model", models: this.modelsUsed(role), config: this.setup.modelFor(role) };
+        : this.setup.replayOf !== undefined
+          ? { controller: "model", models: this.modelsUsed(role) }
+          : { controller: "model", models: this.modelsUsed(role), config: this.setup.modelFor(role) };
     return {
       task_id: taskRef.index,
       reward: done?.reward ?? null,
@@ -501,7 +730,9 @@ export class Episode {
         max_agent_steps: this.setup.maxAgentSteps,
         agent_steps: this.state.agentSteps,
         usage: this.state.usage,
+        ...((this.drafts.agent > 0 || this.drafts.user > 0) && { model_drafts: { ...this.drafts } }),
         started_at: this.startedAt.toISOString(),
+        ...(this.setup.replayOf !== undefined && { replay_of: this.setup.replayOf }),
         finished_at: this.finishedAt?.toISOString() ?? null,
       },
     };

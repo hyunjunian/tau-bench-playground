@@ -1,15 +1,28 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { HistoryEntry } from "../state/history";
-import { compareDatabases } from "../tau/diff";
+import { compareDatabases, compareWrites } from "../tau/diff";
 import type { Domain, Task } from "../tau/env";
 import type { Episode, EpisodeState } from "../tau/episode";
-import { PyDict, type PyValue, jsonPretty, strictEqual } from "../tau/py";
+import { averageReward, isSuccess, passHatK } from "../tau/metrics";
+import { userSystemPrompt } from "../tau/prompts";
+import { PyDict, type PyValue, jsonPretty } from "../tau/py";
+import { type EpisodeRecord, SAMPLE_RUNS } from "../tau/records";
 import { isReadTool, valueText } from "../ui/format";
+import { endReasonText } from "../ui/reasons";
 import { JsonBlock } from "./JsonBlock";
 import { Markdown } from "./Markdown";
 
 export type InspectorTab = "task" | "policy" | "tools" | "result" | "data" | "history";
+
+/** A saved-episodes file the user opened (shown in the History tab). */
+export interface OpenedFile {
+  name: string;
+  records: EpisodeRecord[];
+  /** Rewards recomputed by replaying the records, by record position. */
+  recomputed?: Map<number, Recomputed>;
+  recomputing?: boolean;
+}
 
 function Spoiler({ hint, children, initiallyOpen }: { hint: string; children: React.ReactNode; initiallyOpen: boolean }) {
   const t = useT();
@@ -73,7 +86,13 @@ function TaskTab({ task, agentIsHuman, done }: { task: Task; agentIsHuman: boole
           <p className="instruction">{task.instruction}</p>
         </Spoiler>
       ) : (
-        <p className="instruction">{task.instruction}</p>
+        <>
+          <p className="instruction">{task.instruction}</p>
+          <details className="user-prompt">
+            <summary>{t("userPromptTitle")}</summary>
+            <pre>{userSystemPrompt(task.instruction)}</pre>
+          </details>
+        </>
       )}
       <h3>{t("requiredOutputs")}</h3>
       {task.outputs.length === 0 ? (
@@ -146,8 +165,8 @@ function ResultTab({ episode, state }: { episode: Episode | null; state: Episode
   }, [episode, done]);
   if (!episode || !done) return <div className="tab-body muted">{t("resultPending")}</div>;
   const info = done.info;
-  const gtWrites = episode.setup.task.actions.filter((a) => !isReadTool(a.name));
   const agentTools = episode.env.actions.filter((a) => a.name !== "respond");
+  const writes = compareWrites(episode.setup.task.actions, episode.env.actions, (name) => !isReadTool(name));
   return (
     <div className="tab-body">
       <div className={`result-summary ${done.reward === 1 ? "ok" : "bad"}`}>
@@ -227,19 +246,49 @@ function ResultTab({ episode, state }: { episode: Episode | null; state: Episode
 
       <h3>{t("gtActions")}</h3>
       <ol className="action-list">
-        {gtWrites.map((a, i) => {
-          const matched = agentTools.some((x) => x.name === a.name && strictEqual(x.kwargs, a.kwargs));
-          return (
-            <li key={i} className="write">
-              <span className={matched ? "check-ok" : "check-bad"} title={matched ? t("matchedGt") : undefined}>
-                {matched ? "✓" : "✗"}
-              </span>{" "}
-              <code className="tool-name">{a.name}</code>
-              <JsonBlock text={jsonPretty(a.kwargs)} className="compact" />
-            </li>
-          );
-        })}
+        {writes.checks.map(({ action: a, matched, closest }, i) => (
+          <li key={i} className="write">
+            <span className={matched ? "check-ok" : "check-bad"} title={matched ? t("matchedGt") : undefined}>
+              {matched ? "✓" : "✗"}
+            </span>{" "}
+            <code className="tool-name">{a.name}</code>
+            {!matched && <span className="muted small"> {closest ? t("gtClosest") : t("gtNeverCalled")}</span>}
+            <JsonBlock text={jsonPretty(a.kwargs)} className="compact" />
+            {closest && (
+              <table className="diff">
+                <thead>
+                  <tr>
+                    <th>{t("argCol")}</th>
+                    <th>{t("expected")}</th>
+                    <th>{t("actual")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {closest.diffs.map((d) => (
+                    <tr key={d.path}>
+                      <td>
+                        <code>{d.path}</code>
+                      </td>
+                      <td>
+                        <code>{valueText(d.expected, t("absent"))}</code>
+                      </td>
+                      <td>
+                        <code>{valueText(d.actual, t("absent"))}</code>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </li>
+        ))}
       </ol>
+      {writes.extra.length > 0 && (
+        <>
+          <h3>{t("extraWrites")}</h3>
+          <ActionList actions={writes.extra} />
+        </>
+      )}
       <h3>{t("agentActionsTitle")}</h3>
       <ActionList actions={agentTools} />
     </div>
@@ -302,42 +351,316 @@ function DataTab({ domain, episode }: { domain: Domain; episode: Episode | null 
   );
 }
 
-function HistoryTab({ entries, onClear }: { entries: HistoryEntry[]; onClear: () => void }) {
+function formatWhen(iso: string): string {
+  const d = new Date(iso);
+  const sameDay = d.toDateString() === new Date().toDateString();
+  return sameDay
+    ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+    : d.toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+export function OpenFileButton({ onOpen }: { onOpen: (file: File) => void }) {
   const t = useT();
-  if (entries.length === 0) return <div className="tab-body muted">{t("historyEmpty")}</div>;
-  const avg = entries.reduce((s, e) => s + e.reward, 0) / entries.length;
+  const input = useRef<HTMLInputElement>(null);
   return (
-    <div className="tab-body">
+    <>
+      <button type="button" className="btn btn-small" onClick={() => input.current?.click()}>
+        {t("openFile")}
+      </button>
+      <input
+        ref={input}
+        type="file"
+        accept=".json,application/json"
+        hidden
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) onOpen(file);
+        }}
+      />
+    </>
+  );
+}
+
+/** Result of replaying one record of an opened file: its recomputed reward, or why it could not be replayed. */
+export type Recomputed = { reward: number; reason: string } | { error: string };
+
+function OpenedFileList({
+  file,
+  onOpen,
+  onClose,
+  onRecompute,
+}: {
+  file: OpenedFile;
+  onOpen: (r: EpisodeRecord) => void;
+  onClose: () => void;
+  onRecompute: () => void;
+}) {
+  const t = useT();
+  const [failedOnly, setFailedOnly] = useState(false);
+  const results = file.recomputed ?? null;
+  const running = !!file.recomputing;
+  const recorded = file.records.filter((r) => r.reward !== null).map((r) => ({ task: String(r.taskId), reward: r.reward! }));
+  const avg = averageReward(recorded);
+  const passK = passHatK(recorded);
+
+  let same = 0;
+  let differ = 0;
+  let failed = 0;
+  let unrecorded = 0;
+  for (const r of file.records) {
+    const c = results?.get(r.position);
+    if (!c) continue;
+    if ("error" in c) failed++;
+    else if (r.reward === null) unrecorded++;
+    else if (Math.abs(c.reward - r.reward) > 1e-6) differ++;
+    else same++;
+  }
+
+  return (
+    <section className="opened-file">
       <div className="row space">
-        <span>{t("historyAverage", { avg: avg.toFixed(3), n: entries.length })}</span>
-        <button type="button" className="btn btn-small btn-ghost" onClick={onClear}>
-          {t("historyClear")}
+        <h3>
+          {t("openedFile")}: <code>{file.name}</code>
+        </h3>
+        <button type="button" className="btn btn-small btn-ghost" onClick={onClose}>
+          {t("batchClose")}
         </button>
       </div>
+      <p className="muted small">
+        {t("openedCount", { n: file.records.length })}
+        {avg !== null && ` · ${t("batchAvg", { avg: avg.toFixed(3) })}`}
+        {passK.length > 1 && passK.map(({ k, value }) => ` · pass^${k} ${value.toFixed(3)}`).join("")}
+      </p>
+      <div className="row space verify-row">
+        <span className="small">
+          {running
+            ? t("verifyRunning", { done: results?.size ?? 0, total: file.records.length })
+            : results
+              ? t("verifySummary", { same, differ, failed }) + (unrecorded ? ` ${t("verifyUnrecorded", { n: unrecorded })}` : "")
+              : t("verifyHint")}
+        </span>
+        <button type="button" className="btn btn-small" disabled={running} onClick={onRecompute}>
+          {t("verifyRun")}
+        </button>
+      </div>
+      <label className="check small">
+        <input type="checkbox" checked={failedOnly} onChange={(e) => setFailedOnly(e.target.checked)} />
+        <span>{t("openedFailedOnly")}</span>
+      </label>
       <table className="history">
         <thead>
           <tr>
-            <th>{t("colWhen")}</th>
+            <th>#</th>
             <th>{t("colTask")}</th>
-            <th>{t("colAgent")}</th>
-            <th>{t("colUser")}</th>
+            <th>{t("colTrial")}</th>
             <th>{t("colReward")}</th>
+            {results && <th>{t("colRecomputed")}</th>}
           </tr>
         </thead>
         <tbody>
-          {entries.map((e) => (
-            <tr key={e.id} title={e.reason}>
-              <td>{new Date(e.at).toLocaleString()}</td>
-              <td>
-                {e.domain}/{e.split}#{e.index}
-              </td>
-              <td>{e.agent}</td>
-              <td>{e.user}</td>
-              <td className={e.reward === 1 ? "check-ok" : "check-bad"}>{e.reward.toFixed(1)}</td>
-            </tr>
-          ))}
+          {file.records.map((r) => {
+            if (failedOnly && r.reward !== null && isSuccess(r.reward)) return null;
+            const c = results?.get(r.position);
+            const differs = c && !("error" in c) && r.reward !== null && Math.abs(c.reward - r.reward) > 1e-6;
+            return (
+              <tr key={r.position} className={differs ? "differs" : undefined}>
+                <td>{r.position + 1}</td>
+                <td>
+                  <button type="button" className="link-btn" title={t("historyOpen")} onClick={() => onOpen(r)}>
+                    {r.domain ?? "?"}
+                    {r.split ? `/${r.split}` : ""}#{r.taskId ?? "?"}
+                  </button>
+                </td>
+                <td>{r.trial !== null ? r.trial + 1 : ""}</td>
+                <td className={r.reward === null ? "" : isSuccess(r.reward) ? "check-ok" : "check-bad"}>
+                  {r.reward?.toFixed(1) ?? "–"}
+                </td>
+                {results && (
+                  <td
+                    className={!c || "error" in c ? "muted" : isSuccess(c.reward) ? "check-ok" : "check-bad"}
+                    title={c ? ("error" in c ? c.error : endReasonText(t, c.reason)) : undefined}
+                  >
+                    {!c ? "" : "error" in c ? "!" : `${differs ? "≠ " : ""}${c.reward.toFixed(1)}`}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
+    </section>
+  );
+}
+
+function ModelSummary({ entries }: { entries: HistoryEntry[] }) {
+  const t = useT();
+  const groups = new Map<string, HistoryEntry[]>();
+  for (const e of entries) {
+    const key = `${e.agent}\u0000${e.user}`;
+    groups.set(key, [...(groups.get(key) ?? []), e]);
+  }
+  if (groups.size < 2) return null;
+  return (
+    <>
+      <h3>{t("historySummary")}</h3>
+      <table className="history">
+        <thead>
+          <tr>
+            <th>{t("colAgent")}</th>
+            <th>{t("colUser")}</th>
+            <th>{t("colEpisodes")}</th>
+            <th>{t("colTasks")}</th>
+            <th>{t("colAvg")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {Array.from(groups.values(), (g) => {
+            const avg = averageReward(g.map((e) => ({ task: "", reward: e.reward }))) ?? 0;
+            const tasks = new Set(g.map((e) => `${e.domain}/${e.split}/${e.index}`)).size;
+            return (
+              <tr key={`${g[0].agent}/${g[0].user}`}>
+                <td>{g[0].agent}</td>
+                <td>{g[0].user}</td>
+                <td>{g.length}</td>
+                <td>{tasks}</td>
+                <td>{avg.toFixed(3)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </>
+  );
+}
+
+/** Links to the runs the tau-bench authors published; a link also works as ?file= in a new tab. */
+export function SampleRunLinks({ onOpenUrl, downloading }: { onOpenUrl: (url: string) => void; downloading: boolean }) {
+  const t = useT();
+  return (
+    <>
+      {SAMPLE_RUNS.map((s, i) => (
+        <Fragment key={s.file}>
+          {i > 0 && " · "}
+          <a
+            href={`?file=${encodeURIComponent(s.url)}`}
+            title={`${s.file} (${s.mb} MB)`}
+            onClick={(e) => {
+              if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return; // new tab or window
+              e.preventDefault();
+              onOpenUrl(s.url);
+            }}
+          >
+            {s.label}
+          </a>
+        </Fragment>
+      ))}
+      {downloading && (
+        <span className="welcome-downloading" role="status">
+          <span className="spinner" aria-hidden /> {t("downloading")}
+        </span>
+      )}
+    </>
+  );
+}
+
+function HistoryTab({
+  entries,
+  onClear,
+  onDownloadAll,
+  onOpenEntry,
+  opened,
+  onOpenFile,
+  onOpenUrl,
+  downloading,
+  onOpenRecord,
+  onCloseFile,
+  onRecompute,
+}: {
+  entries: HistoryEntry[];
+  onClear: () => void;
+  onDownloadAll: () => void;
+  onOpenEntry: (e: HistoryEntry) => void;
+  opened: OpenedFile | null;
+  onOpenFile: (file: File) => void;
+  onOpenUrl: (url: string) => void;
+  /** A file is being downloaded from a URL. */
+  downloading: boolean;
+  onOpenRecord: (r: EpisodeRecord) => void;
+  onCloseFile: () => void;
+  onRecompute: () => void;
+}) {
+  const t = useT();
+  const avg = averageReward(entries.map((e) => ({ task: "", reward: e.reward })));
+  const askUrl = () => {
+    const url = window.prompt(t("openUrlPrompt"))?.trim();
+    if (url) onOpenUrl(url);
+  };
+  return (
+    <div className="tab-body">
+      <div className="row space">
+        <span className="muted small">{t("openFileHint")}</span>
+        <span className="row">
+          <OpenFileButton onOpen={onOpenFile} />
+          <button type="button" className="btn btn-small" onClick={askUrl}>
+            {t("openUrl")}
+          </button>
+        </span>
+      </div>
+      <p className="welcome-samples muted small">
+        {t("samplesLabel")} <SampleRunLinks onOpenUrl={onOpenUrl} downloading={downloading} />
+      </p>
+      {opened && <OpenedFileList file={opened} onOpen={onOpenRecord} onClose={onCloseFile} onRecompute={onRecompute} />}
+      <h3>{t("historyLocal")}</h3>
+      {entries.length === 0 ? (
+        <p className="muted">{t("historyEmpty")}</p>
+      ) : (
+        <>
+          <div className="row space">
+            <span>{t("historyAverage", { avg: (avg ?? 0).toFixed(3), n: entries.length })}</span>
+            <span className="row">
+              <button type="button" className="btn btn-small" title={t("historyDownloadHint")} onClick={onDownloadAll}>
+                {t("historyDownload")}
+              </button>
+              <button type="button" className="btn btn-small btn-ghost" onClick={onClear}>
+                {t("historyClear")}
+              </button>
+            </span>
+          </div>
+          <ModelSummary entries={entries} />
+          <table className="history">
+            <thead>
+              <tr>
+                <th>{t("colWhen")}</th>
+                <th>{t("colTask")}</th>
+                <th>{t("colAgent")}</th>
+                <th>{t("colUser")}</th>
+                <th>{t("colReward")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e) => (
+                <tr key={e.id} title={endReasonText(t, e.reason)}>
+                  <td>{formatWhen(e.at)}</td>
+                  <td>
+                    <button type="button" className="link-btn" title={t("historyOpen")} onClick={() => onOpenEntry(e)}>
+                      {e.domain}/{e.split}#{e.index}
+                    </button>
+                    {e.trial !== undefined && <span className="muted"> · {e.trial + 1}</span>}
+                  </td>
+                  <td className="clip" title={e.agent}>
+                    {e.agent}
+                  </td>
+                  <td className="clip" title={e.user}>
+                    {e.user}
+                  </td>
+                  <td className={e.reward === 1 ? "check-ok" : "check-bad"}>{e.reward.toFixed(1)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </div>
   );
 }
@@ -353,6 +676,15 @@ export function Inspector({
   taskDone,
   history,
   onClearHistory,
+  onDownloadHistory,
+  onOpenHistory,
+  opened,
+  onOpenFile,
+  onOpenUrl,
+  downloading,
+  onOpenRecord,
+  onCloseFile,
+  onRecompute,
   onUseTool,
 }: {
   tab: InspectorTab;
@@ -367,6 +699,15 @@ export function Inspector({
   taskDone: boolean;
   history: HistoryEntry[];
   onClearHistory: () => void;
+  onDownloadHistory: () => void;
+  onOpenHistory: (e: HistoryEntry) => void;
+  opened: OpenedFile | null;
+  onOpenFile: (file: File) => void;
+  onOpenUrl: (url: string) => void;
+  downloading: boolean;
+  onOpenRecord: (r: EpisodeRecord) => void;
+  onCloseFile: () => void;
+  onRecompute: () => void;
   onUseTool: (name: string) => void;
 }) {
   const t = useT();
@@ -379,35 +720,70 @@ export function Inspector({
     ["history", t("tabHistory")],
   ];
   const canUseTool = !!state && state.turn === "agent" && !!episode && episode.controllerOf("agent") === "human";
+  // Arrow keys move between tabs (WAI-ARIA tabs pattern).
+  const onTabKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const buttons = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("[role=tab]"));
+    const focused = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const i = focused >= 0 ? focused : tabs.findIndex(([id]) => id === tab);
+    const j = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+    if (j === undefined) return;
+    e.preventDefault();
+    const next = (j + tabs.length) % tabs.length;
+    setTab(tabs[next][0]);
+    buttons[next]?.focus();
+  };
   return (
     <div className="inspector">
-      <div className="tabs" role="tablist">
+      <div className="tabs" role="tablist" onKeyDown={onTabKey}>
         {tabs.map(([id, label]) => (
-          <button key={id} type="button" role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>
+          <button
+            key={id}
+            id={`inspector-tab-${id}`}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            aria-controls="inspector-panel"
+            tabIndex={tab === id ? 0 : -1}
+            className={tab === id ? "active" : ""}
+            onClick={() => setTab(id)}
+          >
             {label}
             {id === "result" && state?.done && <span className={`dot ${state.done.reward === 1 ? "ok" : "bad"}`} />}
           </button>
         ))}
       </div>
-      {!domain || !task ? (
-        <div className="tab-body muted">{t("loading")}</div>
-      ) : tab === "task" ? (
-        <TaskTab task={task} agentIsHuman={agentIsHuman} done={taskDone} />
-      ) : tab === "policy" ? (
-        <div className="tab-body">
-          <p className="note">{t("policyNote")}</p>
-          <Markdown text={domain.wiki} className="policy" />
-        </div>
-      ) : tab === "tools" ? (
-        <ToolsTab domain={domain} onUse={onUseTool} canUse={canUseTool} />
-      ) : tab === "result" ? (
-        <ResultTab episode={episode} state={state} />
-      ) : tab === "data" ? (
-        <DataTab domain={domain} episode={episode} />
-      ) : (
-        <HistoryTab entries={history} onClear={onClearHistory} />
-      )}
+      <div className="tab-panel" role="tabpanel" id="inspector-panel" aria-labelledby={`inspector-tab-${tab}`}>
+        {tab === "history" ? (
+          <HistoryTab
+            entries={history}
+            onClear={onClearHistory}
+            onDownloadAll={onDownloadHistory}
+            onOpenEntry={onOpenHistory}
+            opened={opened}
+            onOpenFile={onOpenFile}
+            onOpenUrl={onOpenUrl}
+            downloading={downloading}
+            onOpenRecord={onOpenRecord}
+            onCloseFile={onCloseFile}
+            onRecompute={onRecompute}
+          />
+        ) : !domain || !task ? (
+          <div className="tab-body muted">{t("loading")}</div>
+        ) : tab === "task" ? (
+          <TaskTab task={task} agentIsHuman={agentIsHuman} done={taskDone} />
+        ) : tab === "policy" ? (
+          <div className="tab-body">
+            <p className="note">{t("policyNote")}</p>
+            <Markdown text={domain.wiki} className="policy" />
+          </div>
+        ) : tab === "tools" ? (
+          <ToolsTab domain={domain} onUse={onUseTool} canUse={canUseTool} />
+        ) : tab === "result" ? (
+          <ResultTab episode={episode} state={state} />
+        ) : (
+          <DataTab domain={domain} episode={episode} />
+        )}
+      </div>
     </div>
   );
 }
-

@@ -9,9 +9,11 @@
   --accent: #4f46e5;
   --accent-soft: #eef0ff;
   --accent-text: #3b33c6;
+  /* text on --accent backgrounds (primary buttons, selected segments) */
+  --on-accent: #ffffff;
   --agent: #4f46e5;
   --agent-soft: #f1f2ff;
-  --user: #0b8a7d;
+  --user: #0a7a6e;
   --user-soft: #eefaf8;
   --tool: #b15a0a;
   --tool-soft: #fff6e9;
@@ -30,8 +32,9 @@
   color-scheme: light;
 }
 
+/* Dark colors follow the system unless a theme is picked in the header (data-theme on <html>). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0e1015;
     --panel: #161920;
     --panel-2: #1c2029;
@@ -42,6 +45,7 @@
     --accent: #818cf8;
     --accent-soft: #23264a;
     --accent-text: #c3c8ff;
+    --on-accent: #0e1015;
     --agent: #8b93fb;
     --agent-soft: #1d2040;
     --user: #34d3bf;
@@ -59,6 +63,36 @@
     --shadow: none;
     color-scheme: dark;
   }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0e1015;
+  --panel: #161920;
+  --panel-2: #1c2029;
+  --border: #2a2f3a;
+  --border-strong: #3a404d;
+  --text: #e7e9ee;
+  --muted: #9aa2b1;
+  --accent: #818cf8;
+  --accent-soft: #23264a;
+  --accent-text: #c3c8ff;
+  --on-accent: #0e1015;
+  --agent: #8b93fb;
+  --agent-soft: #1d2040;
+  --user: #34d3bf;
+  --user-soft: #12302d;
+  --tool: #f0a24a;
+  --tool-soft: #33260f;
+  --ok: #4ade80;
+  --ok-soft: #10291a;
+  --bad: #f87171;
+  --bad-soft: #351718;
+  --j-key: #c4a1ff;
+  --j-str: #6ee7b7;
+  --j-num: #fbbf6a;
+  --j-lit: #93c5fd;
+  --shadow: none;
+  color-scheme: dark;
 }
 
 * {
@@ -315,7 +349,7 @@ h3 {
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
 }
 .btn-primary:hover:not(:disabled) {
@@ -365,7 +399,8 @@ textarea:focus,
 .btn:focus-visible,
 .chip:focus-visible,
 .segmented button:focus-visible,
-.tabs button:focus-visible {
+.tabs button:focus-visible,
+pre:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
@@ -458,8 +493,12 @@ input[type="number"] {
 }
 .segmented button.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
   font-weight: 600;
+}
+.theme-toggle {
+  min-width: 30px;
+  line-height: 1.2;
 }
 .segmented.lang button {
   padding: 3px 9px;
@@ -515,6 +554,11 @@ input[type="number"] {
   background: var(--tool-soft);
   border-color: transparent;
   color: var(--tool);
+}
+.badge-ok {
+  background: var(--ok-soft);
+  border-color: transparent;
+  color: var(--ok);
 }
 .badge-stop {
   background: var(--bad-soft);
@@ -598,11 +642,289 @@ input[type="number"] {
 .model-picker {
   margin-top: 6px;
 }
+.draft-model {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.draft-model summary {
+  cursor: pointer;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
 .start-bar {
   position: sticky;
   bottom: 0;
   padding: 12px 0;
   background: linear-gradient(to bottom, transparent, var(--panel) 30%);
+}
+
+.row.three > * {
+  flex: 1;
+  min-width: 0;
+}
+.small {
+  font-size: 12px;
+}
+.batch-setup {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+}
+.batch-setup summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.batch-setup .btn-block {
+  margin-top: 4px;
+  padding: 7px;
+  font-size: 13px;
+}
+
+/* ---------- batch ---------- */
+
+.batch-card {
+  flex: none;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  padding: 8px 16px 10px;
+  font-size: 12px;
+  max-height: 34%;
+  overflow: auto;
+}
+.batch-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.batch-stats {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px 10px;
+  flex-wrap: wrap;
+  min-height: 26px;
+}
+.batch-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.batch-head .badge {
+  display: inline-flex;
+  align-items: center;
+}
+.batch-head .spinner {
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+}
+.batch-models {
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.batch-avg {
+  font-variant-numeric: tabular-nums;
+}
+.batch-retry {
+  color: var(--bad);
+}
+.progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  margin: 8px 0 6px;
+  overflow: hidden;
+}
+.progress > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s;
+}
+.batch-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+}
+.batch-task {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.batch-index {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
+  min-width: 2ch;
+  text-align: right;
+  margin-right: 2px;
+}
+.cell {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border-radius: 3px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel-2);
+}
+.cell.ok {
+  background: var(--ok);
+  border-color: var(--ok);
+  cursor: pointer;
+}
+.cell.bad {
+  background: var(--bad);
+  border-color: var(--bad);
+  cursor: pointer;
+}
+.cell.running {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+.cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cell.running {
+    animation: none;
+  }
+}
+.replay-badge {
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.opened-file {
+  margin: 10px 0 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.opened-file h3 {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.opened-file p {
+  margin: 2px 0 0;
+}
+.verify-row {
+  margin: 8px 0 2px;
+  align-items: flex-start;
+}
+.history tr.differs td {
+  background: var(--bad-soft);
+}
+.history td.clip {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.history .link-btn {
+  font-size: inherit;
+  font-family: inherit;
+}
+
+/* ---------- task picker ---------- */
+
+.task-picker {
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(80vh, 900px);
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 25%);
+  flex-direction: column;
+}
+.task-picker[open] {
+  display: flex;
+}
+.task-picker::backdrop {
+  background: rgb(10 12 16 / 45%);
+}
+.picker-head {
+  display: flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.picker-controls {
+  padding: 10px 14px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.task-picker > .small {
+  margin: 4px 14px 6px;
+}
+.picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 10px;
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+}
+.picker-list button {
+  font: inherit;
+  color: inherit;
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  padding: 7px 8px;
+  cursor: pointer;
+}
+.picker-list button:hover {
+  background: var(--panel-2);
+}
+.picker-list button.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.picker-list button.active .picker-index {
+  color: var(--accent-text);
+}
+.picker-list button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.picker-index {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--muted);
+  min-width: 4ch;
+  padding-top: 1px;
+}
+.picker-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.picker-text {
+  font-size: 13px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 /* ---------- welcome ---------- */
@@ -624,6 +946,25 @@ input[type="number"] {
 }
 .welcome ol {
   padding-left: 1.3em;
+}
+.welcome-open {
+  margin: 18px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+.welcome-samples {
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+.welcome-samples a {
+  white-space: nowrap;
+}
+.welcome-downloading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
 }
 
 /* ---------- episode ---------- */
@@ -853,6 +1194,39 @@ input[type="number"] {
 .composer-user .composer-title {
   color: var(--user);
 }
+.composer-tabs {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 6px;
+}
+.composer-tabs .tabs.small {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+.draft {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+.draft .spinner {
+  width: 12px;
+  height: 12px;
+  margin-right: 0;
+}
+.draft-note {
+  font-size: 12px;
+  font-style: italic;
+  margin: 0 0 6px;
+}
+.composer-head {
+  align-items: flex-start;
+}
 .message-box textarea {
   min-height: 64px;
 }
@@ -887,6 +1261,15 @@ input[type="number"] {
 }
 .tool-fields fieldset {
   grid-column: 1 / -1;
+}
+.suggest-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.suggest-chips .chip {
+  font-size: 11px;
+  padding: 1px 8px;
 }
 .obj-row {
   display: flex;
@@ -1011,6 +1394,12 @@ input[type="number"] {
 .dot.bad {
   background: var(--bad);
 }
+.tab-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
 .tab-body {
   padding: 12px 16px 24px;
   overflow: auto;
@@ -1031,6 +1420,21 @@ input[type="number"] {
   border-radius: 8px;
   padding: 8px 10px;
   margin: 0;
+}
+.user-prompt {
+  margin-top: 6px;
+  font-size: 12px;
+}
+.user-prompt summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+.user-prompt pre {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 6px 0 0;
 }
 .spoiler {
   display: flex;
@@ -1093,6 +1497,13 @@ input[type="number"] {
 }
 .json.compact {
   max-height: 300px;
+}
+/* Ground-truth and compared actions are short: wrap and grow rather than scroll (a scroll box needs keyboard focus). */
+.action-list .json {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: none;
+  overflow: visible;
 }
 pre {
   white-space: pre-wrap;
